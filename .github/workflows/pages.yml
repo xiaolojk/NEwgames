@@ -1,0 +1,65 @@
+name: 部署到 GitHub Pages
+
+# 把混淆后的网页版部署到 GitHub Pages
+# 部署后任何人都能通过公开链接游玩，但拿到的 JS 是强混淆的
+# 配合 release.yml 的服务器部署脚本使用
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'orgc-orange-dungeon/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 构建混淆版网页
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: orgc-orange-dungeon
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: orgc-orange-dungeon/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci || npm install
+
+      - name: 构建（含代码混淆）
+        run: |
+          npm run build
+          touch dist/.nojekyll
+
+      - name: 上传 Pages 产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: orgc-orange-dungeon/dist
+
+  deploy:
+    name: 部署到 GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署
+        id: deployment
+        uses: actions/deploy-pages@v4
