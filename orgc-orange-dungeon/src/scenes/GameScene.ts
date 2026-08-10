@@ -11,6 +11,7 @@ import {
 } from '../config';
 import type { EnemyState, ItemDrop, DungeonState, PlayerState } from '../types';
 import { isWalkable, tileAt } from '../systems/DungeonGenerator';
+import { TouchInput } from '../render/TouchInput';
 
 interface EnemySprite {
   body: Phaser.GameObjects.Sprite;
@@ -41,9 +42,14 @@ export class GameScene extends Phaser.Scene {
   private damageTexts: Array<{ text: Phaser.GameObjects.Text; life: number; vy: number }> = [];
   private bloodParticles: Phaser.GameObjects.Particles.ParticleEmitter[] = [];
   private isTransitioning = false;
+  private touchInput!: TouchInput;
 
   constructor() {
     super('Game');
+  }
+
+  shutdown() {
+    window.removeEventListener('orgc-quick-potion', this.onQuickPotion);
   }
 
   create() {
@@ -100,11 +106,32 @@ export class GameScene extends Phaser.Scene {
     // 输入
     this.setupInput();
 
+    // 触屏输入
+    this.touchInput = new TouchInput();
+    // 快速药水按钮事件
+    window.addEventListener('orgc-quick-potion', this.onQuickPotion);
+
     // 进入提示
     this.hud.showToast(`第 ${this.state.dungeon.floor} 层 · 探索地牢`, 2000);
 
-    console.log('[Orgc] 游戏启动完成');
+    console.log('[Orgc] 游戏启动完成 · 触屏=' + (this.touchInput.isEnabled() ? 'ON' : 'OFF'));
   }
+
+  // 快速使用第一个药水
+  private onQuickPotion = () => {
+    // 找到第一个药水槽
+    for (let i = 0; i < this.state.inventory.length; i++) {
+      const slot = this.state.inventory[i];
+      const cfg = ITEMS[slot.itemId];
+      if (cfg && cfg.type === 'potion') {
+        if (this.hud.useSlot(i)) {
+          this.hud.showToast(`使用了 ${cfg.name}`);
+        }
+        return;
+      }
+    }
+    this.hud.showToast('背包没有药水');
+  };
 
   // ============ 渲染地牢瓦片 ============
   private renderDungeon() {
@@ -424,14 +451,23 @@ export class GameScene extends Phaser.Scene {
     // 体力恢复
     p.sp = Math.min(p.maxSp, p.sp + 12 * dt);
 
-    // 输入移动
+    // 输入移动（键盘）
     let mx = 0, my = 0;
     if (this.keys.W?.isDown || this.keys.UP?.isDown) my -= 1;
     if (this.keys.S?.isDown || this.keys.DOWN?.isDown) my += 1;
     if (this.keys.A?.isDown || this.keys.LEFT?.isDown) mx -= 1;
     if (this.keys.D?.isDown || this.keys.RIGHT?.isDown) mx += 1;
-    // 归一化
-    if (mx !== 0 && my !== 0) {
+    // 触屏摇杆输入（与键盘合并，触屏优先）
+    if (this.touchInput && this.touchInput.isEnabled()) {
+      const tmx = this.touchInput.moveX;
+      const tmy = this.touchInput.moveY;
+      if (tmx !== 0 || tmy !== 0) {
+        mx = tmx;
+        my = tmy;
+      }
+    }
+    // 归一化（键盘对角线）
+    if (mx !== 0 && my !== 0 && Math.abs(mx) === 1 && Math.abs(my) === 1) {
       const inv = 1 / Math.sqrt(2);
       mx *= inv; my *= inv;
     }
@@ -441,8 +477,27 @@ export class GameScene extends Phaser.Scene {
     } else if (my !== 0) {
       p.facing = my > 0 ? 0 : 3;  // DOWN / UP
     }
+    // 触屏：当无摇杆输入时，按 facing 方向作为攻击方向兜底
+    if (this.touchInput && this.touchInput.isEnabled()) {
+      if (mx === 0 && my === 0) {
+        const dirs = [
+          { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }, { x: 0, y: -1 },
+        ];
+        const fd = dirs[p.facing];
+        this.touchInput.setAttackDir(fd.x, fd.y);
+      }
+    }
+    // 触屏攻击按钮
+    if (this.touchInput && this.touchInput.isEnabled() && this.touchInput.consumeAttack()) {
+      const dx = this.touchInput.attackDirX;
+      const dy = this.touchInput.attackDirY;
+      const targetX = p.x + dx * 50;
+      const targetY = p.y + dy * 50;
+      this.tryAttack(targetX, targetY);
+    }
     // 冲刺
-    if (this.keys.SHIFT?.isDown && p.sp >= PLAYER_BASE.dashCost && p.dashTime <= 0 && (mx !== 0 || my !== 0)) {
+    const dashHeld = (this.keys.SHIFT?.isDown) || (this.touchInput && this.touchInput.isDashHeld());
+    if (dashHeld && p.sp >= PLAYER_BASE.dashCost && p.dashTime <= 0 && (mx !== 0 || my !== 0)) {
       p.dashTime = PLAYER_BASE.dashDuration;
       p.dashDir = { x: mx, y: my };
       p.sp -= PLAYER_BASE.dashCost;

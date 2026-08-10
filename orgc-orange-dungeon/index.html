@@ -145,6 +145,103 @@
       .upgrade-item:hover { border-color: #ffaa30; background: rgba(60, 40, 70, 0.8); }
       .upgrade-item .title { color: #ffe080; font-weight: bold; font-size: 14px; }
       .upgrade-item .desc { color: #a09078; font-size: 12px; margin-top: 4px; }
+      /* ============ 触屏控制 ============ */
+      #touch-controls {
+        position: fixed; inset: 0; pointer-events: none;
+        z-index: 15; display: none;
+      }
+      #touch-controls.show { display: block; }
+      /* 虚拟摇杆 */
+      #joystick {
+        position: absolute; left: 24px; bottom: 24px;
+        width: 130px; height: 130px;
+        pointer-events: auto;
+        touch-action: none;
+      }
+      #joystick-base {
+        position: absolute; inset: 0;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(40,28,50,0.5), rgba(10,7,16,0.6));
+        border: 2px solid rgba(255,170,48,0.4);
+        box-shadow: 0 0 20px rgba(0,0,0,0.5);
+      }
+      #joystick-knob {
+        position: absolute; left: 50%; top: 50%;
+        width: 56px; height: 56px;
+        margin-left: -28px; margin-top: -28px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, #ffb060, #c05010);
+        border: 2px solid #ffd080;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.5), inset 0 -4px 8px rgba(0,0,0,0.3);
+        transition: transform 0.05s;
+      }
+      /* 右下角动作按钮组 */
+      #action-buttons {
+        position: absolute; right: 24px; bottom: 24px;
+        display: flex; flex-direction: column; align-items: flex-end;
+        gap: 14px; pointer-events: none;
+      }
+      .action-btn {
+        pointer-events: auto;
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 28px; color: #ffe080;
+        border: 3px solid;
+        user-select: none;
+        touch-action: none;
+        font-family: inherit;
+        transition: transform 0.08s, background 0.1s;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.5), inset 0 -3px 8px rgba(0,0,0,0.3);
+      }
+      .action-btn:active { transform: scale(0.92); }
+      .btn-attack {
+        width: 90px; height: 90px;
+        background: radial-gradient(circle at 35% 35%, #ff6040, #a01810);
+        border-color: #ff8050;
+        font-size: 36px;
+      }
+      .btn-dash {
+        width: 68px; height: 68px;
+        background: radial-gradient(circle at 35% 35%, #50a0ff, #1040a0);
+        border-color: #60b0ff;
+        font-size: 26px;
+      }
+      .btn-potion {
+        width: 60px; height: 60px;
+        background: radial-gradient(circle at 35% 35%, #50d060, #108040);
+        border-color: #60e070;
+        font-size: 24px;
+      }
+      /* 顶部状态栏在小屏上更紧凑 */
+      @media (max-width: 600px) {
+        .bar-track { width: 90px; }
+        .stat-panel { font-size: 11px; padding: 4px 6px; }
+        #minimap { width: 100px; height: 100px; }
+        .hint { display: none; }
+        .bottombar { bottom: 170px; }
+        .slot { width: 38px; height: 38px; }
+        .slot-icon { font-size: 18px; }
+      }
+      @media (max-width: 400px) {
+        .bar-track { width: 70px; }
+        #minimap { width: 80px; height: 80px; }
+      }
+      /* 横屏提示 */
+      #rotate-hint {
+        position: fixed; inset: 0; z-index: 50;
+        background: rgba(0,0,0,0.92);
+        display: none; align-items: center; justify-content: center;
+        flex-direction: column; color: #ffaa30; text-align: center;
+        padding: 20px;
+      }
+      #rotate-hint.show { display: flex; }
+      #rotate-hint .icon { font-size: 60px; margin-bottom: 16px; animation: rotate 2s infinite; }
+      #rotate-hint h3 { font-size: 18px; margin-bottom: 8px; }
+      #rotate-hint p { font-size: 13px; color: #a09078; }
+      @keyframes rotate {
+        0%, 100% { transform: rotate(0deg); }
+        50% { transform: rotate(90deg); }
+      }
     </style>
   </head>
   <body>
@@ -198,6 +295,24 @@
         <p id="death-stats"></p>
         <button class="btn" id="restart-btn">重新开始</button>
       </div>
+    </div>
+    <!-- 触屏控制 -->
+    <div id="touch-controls">
+      <div id="joystick">
+        <div id="joystick-base"></div>
+        <div id="joystick-knob"></div>
+      </div>
+      <div id="action-buttons">
+        <button class="action-btn btn-potion" id="btn-potion">🧪</button>
+        <button class="action-btn btn-dash" id="btn-dash">⚡</button>
+        <button class="action-btn btn-attack" id="btn-attack">⚔️</button>
+      </div>
+    </div>
+    <!-- 横屏提示（竖屏时显示） -->
+    <div id="rotate-hint">
+      <div class="icon">📱</div>
+      <h3>请横屏游玩</h3>
+      <p>橘子地牢为横屏游戏，旋转设备以获得最佳体验</p>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
