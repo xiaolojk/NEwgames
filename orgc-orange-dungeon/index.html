@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0a0710" />
+    <title>橘子地牢 · Orgc 橘子工作室</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 100%; height: 100%; overflow: hidden;
+        background: #0a0710;
+        font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+        color: #f0e8d0;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #app {
+        position: fixed; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+      }
+      canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+      /* DOM HUD 容器 */
+      #hud {
+        position: fixed; inset: 0; pointer-events: none;
+        z-index: 10; font-size: 14px;
+      }
+      #hud > * { pointer-events: auto; }
+      /* 顶部状态栏 */
+      .topbar {
+        position: absolute; top: 8px; left: 8px; right: 8px;
+        display: flex; justify-content: space-between; align-items: flex-start;
+        gap: 12px; pointer-events: none;
+      }
+      .stat-panel {
+        background: rgba(10, 7, 16, 0.78);
+        border: 2px solid #5a3a1a;
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 13px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      }
+      .bar {
+        display: flex; align-items: center; gap: 6px; margin: 2px 0;
+      }
+      .bar-label { width: 32px; color: #d0c090; font-size: 12px; }
+      .bar-track {
+        width: 140px; height: 12px;
+        background: #1a1218; border: 1px solid #4a2a1a; border-radius: 2px;
+        overflow: hidden;
+      }
+      .bar-fill { height: 100%; transition: width 0.2s; }
+      .bar-fill.hp { background: linear-gradient(90deg, #b8202a, #ff4a4a); }
+      .bar-fill.xp { background: linear-gradient(90deg, #2a60c0, #5aa0ff); }
+      .bar-fill.sp { background: linear-gradient(90deg, #2a8030, #5acc60); }
+      .bar-value { color: #f0e8d0; font-size: 11px; min-width: 50px; }
+      .floor-info { color: #ffaa30; font-weight: bold; font-size: 14px; }
+      /* 小地图 */
+      #minimap {
+        position: absolute; top: 8px; right: 8px;
+        background: rgba(10, 7, 16, 0.85);
+        border: 2px solid #5a3a1a;
+        border-radius: 4px;
+        image-rendering: pixelated;
+      }
+      /* 底部背包 */
+      .bottombar {
+        position: absolute; bottom: 8px; left: 50%;
+        transform: translateX(-50%);
+        display: flex; gap: 4px;
+        background: rgba(10, 7, 16, 0.78);
+        border: 2px solid #5a3a1a; border-radius: 6px;
+        padding: 4px;
+      }
+      .slot {
+        width: 44px; height: 44px;
+        background: #1a1218; border: 1px solid #4a2a1a;
+        border-radius: 3px;
+        display: flex; align-items: center; justify-content: center;
+        position: relative; cursor: pointer;
+      }
+      .slot:hover { border-color: #ffaa30; }
+      .slot.active { border-color: #ffaa30; box-shadow: 0 0 6px #ffaa30; }
+      .slot-icon { font-size: 22px; }
+      .slot-count {
+        position: absolute; bottom: 0; right: 2px;
+        font-size: 10px; color: #ffe080; font-weight: bold;
+      }
+      /* 操作提示 */
+      .hint {
+        position: absolute; bottom: 8px; left: 8px;
+        background: rgba(10, 7, 16, 0.7);
+        border: 1px solid #3a2a1a; border-radius: 4px;
+        padding: 4px 8px; font-size: 11px; color: #a09078;
+        max-width: 200px; line-height: 1.5;
+      }
+      /* 浮动提示 */
+      #toast {
+        position: absolute; top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(10, 7, 16, 0.92);
+        border: 2px solid #ffaa30; border-radius: 6px;
+        padding: 16px 28px; font-size: 16px;
+        color: #ffe080; text-align: center;
+        opacity: 0; transition: opacity 0.3s;
+        pointer-events: none; z-index: 20;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.7);
+      }
+      #toast.show { opacity: 1; }
+      /* 模态对话框 */
+      .modal {
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,0.7);
+        display: none; align-items: center; justify-content: center;
+        z-index: 30;
+      }
+      .modal.show { display: flex; }
+      .modal-box {
+        background: linear-gradient(180deg, #2a1a2a, #15101a);
+        border: 2px solid #ffaa30; border-radius: 8px;
+        padding: 24px; max-width: 440px; width: 92%;
+        text-align: center; color: #f0e8d0;
+        box-shadow: 0 8px 40px rgba(0,0,0,0.8);
+      }
+      .modal-box h2 {
+        color: #ffaa30; font-size: 22px; margin-bottom: 12px;
+        letter-spacing: 2px;
+      }
+      .modal-box p { margin: 8px 0; line-height: 1.6; font-size: 14px; color: #d0c0a0; }
+      .btn {
+        background: linear-gradient(180deg, #6a4020, #4a2810);
+        border: 2px solid #ffaa30; color: #ffe080;
+        padding: 8px 20px; font-size: 14px;
+        border-radius: 4px; cursor: pointer; margin: 6px;
+        font-family: inherit; transition: all 0.15s;
+      }
+      .btn:hover { background: linear-gradient(180deg, #8a5030, #6a3820); transform: translateY(-1px); }
+      .btn:active { transform: translateY(0); }
+      .upgrade-list { text-align: left; margin: 12px 0; }
+      .upgrade-item {
+        background: rgba(40, 28, 50, 0.7); border: 1px solid #5a3a1a;
+        border-radius: 4px; padding: 10px; margin: 6px 0;
+        cursor: pointer; transition: all 0.15s;
+      }
+      .upgrade-item:hover { border-color: #ffaa30; background: rgba(60, 40, 70, 0.8); }
+      .upgrade-item .title { color: #ffe080; font-weight: bold; font-size: 14px; }
+      .upgrade-item .desc { color: #a09078; font-size: 12px; margin-top: 4px; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud">
+      <div class="topbar">
+        <div class="stat-panel">
+          <div class="bar">
+            <span class="bar-label">生命</span>
+            <div class="bar-track"><div id="hp-bar" class="bar-fill hp" style="width:100%"></div></div>
+            <span id="hp-value" class="bar-value">100/100</span>
+          </div>
+          <div class="bar">
+            <span class="bar-label">经验</span>
+            <div class="bar-track"><div id="xp-bar" class="bar-fill xp" style="width:0%"></div></div>
+            <span id="xp-value" class="bar-value">0/50</span>
+          </div>
+          <div class="bar">
+            <span class="bar-label">体力</span>
+            <div class="bar-track"><div id="sp-bar" class="bar-fill sp" style="width:100%"></div></div>
+            <span id="sp-value" class="bar-value">100/100</span>
+          </div>
+        </div>
+        <div class="stat-panel" style="text-align:right">
+          <div class="floor-info">第 <span id="floor-num">1</span> 层</div>
+          <div style="margin-top:4px">金币：<span id="gold-num" style="color:#ffe080">0</span></div>
+          <div>击杀：<span id="kill-num" style="color:#ff8080">0</span></div>
+          <div>等级：<span id="lvl-num" style="color:#80c0ff">1</span></div>
+        </div>
+      </div>
+      <canvas id="minimap" width="160" height="160"></canvas>
+      <div class="bottombar" id="hotbar"></div>
+      <div class="hint">
+        <div>WASD/方向键 移动</div>
+        <div>空格/鼠标 攻击</div>
+        <div>Shift 冲刺</div>
+        <div>1-5 使用道具</div>
+      </div>
+      <div id="toast"></div>
+    </div>
+    <div class="modal" id="upgrade-modal">
+      <div class="modal-box">
+        <h2>升级！</h2>
+        <p>选择一项强化：</p>
+        <div class="upgrade-list" id="upgrade-list"></div>
+      </div>
+    </div>
+    <div class="modal" id="death-modal">
+      <div class="modal-box">
+        <h2>你倒下了…</h2>
+        <p id="death-stats"></p>
+        <button class="btn" id="restart-btn">重新开始</button>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

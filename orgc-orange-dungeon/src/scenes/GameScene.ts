@@ -1,0 +1,757 @@
+// GameScene · 主游戏场景 · 橘子地牢
+// 渲染地牢、玩家、敌人、道具、特效；处理输入、AI、战斗、楼层递进
+// Orgc 橘子工作室
+
+import Phaser from 'phaser';
+import { GameState } from '../systems/GameState';
+import { HUD } from '../render/HUD';
+import {
+  TILE, SCALE, TILE_PIX, VIEW_W, VIEW_H, MAP_W, MAP_H,
+  TILE_TYPE, COLORS, PLAYER_BASE, ENEMY_TYPES, ITEMS,
+} from '../config';
+import type { EnemyState, ItemDrop, DungeonState, PlayerState } from '../types';
+import { isWalkable, tileAt } from '../systems/DungeonGenerator';
+
+interface EnemySprite {
+  body: Phaser.GameObjects.Sprite;
+  hpBar: Phaser.GameObjects.Rectangle;
+  hpBarBg: Phaser.GameObjects.Rectangle;
+  enemy: EnemyState;
+}
+
+interface ItemSprite {
+  sprite: Phaser.GameObjects.Sprite;
+  item: ItemDrop;
+  bob: number;
+}
+
+export class GameScene extends Phaser.Scene {
+  private state!: GameState;
+  private hud!: HUD;
+  private tileLayer!: Phaser.GameObjects.Container;
+  private enemySprites: EnemySprite[] = [];
+  private itemSprites: ItemSprite[] = [];
+  private playerSprite!: Phaser.GameObjects.Sprite;
+  private weaponSprite!: Phaser.GameObjects.Sprite;
+  private slashFx!: Phaser.GameObjects.Sprite;
+  private fogLayer!: Phaser.GameObjects.Image;
+  private keys!: Record<string, Phaser.Input.Keyboard.Key>;
+  private cooldownMul = 1.0;
+  private playerHurtFlash: Phaser.GameObjects.Rectangle | null = null;
+  private damageTexts: Array<{ text: Phaser.GameObjects.Text; life: number; vy: number }> = [];
+  private bloodParticles: Phaser.GameObjects.Particles.ParticleEmitter[] = [];
+  private isTransitioning = false;
+
+  constructor() {
+    super('Game');
+  }
+
+  create() {
+    // 创建新游戏状态
+    this.state = new GameState();
+    this.cooldownMul = 1.0;
+    this.hud = new HUD(this.state);
+    this.hud.setCooldownMul(this.cooldownMul);
+
+    // 设置相机
+    this.cameras.main.setBackgroundColor(COLORS.uiBg);
+    this.cameras.main.setRoundPixels(true);
+    this.cameras.main.startFollow(this.playerSprite || this.add.container(0, 0), true, 0.15, 0.15);
+
+    // 渲染地牢
+    this.renderDungeon();
+
+    // 创建玩家精灵
+    this.playerSprite = this.add.sprite(this.state.player.x, this.state.player.y, 'player', 0);
+    this.playerSprite.setScale(SCALE);
+    this.playerSprite.setOrigin(0.5, 0.6);
+    // 武器精灵（剑）
+    this.weaponSprite = this.add.sprite(this.state.player.x, this.state.player.y, 'item_sword');
+    this.weaponSprite.setScale(SCALE);
+    this.weaponSprite.setOrigin(0.1, 0.5);
+    this.weaponSprite.setVisible(false);
+
+    // 攻击特效
+    this.slashFx = this.add.sprite(0, 0, 'fx_slash');
+    this.slashFx.setScale(SCALE);
+    this.slashFx.setVisible(false);
+    this.slashFx.setDepth(50);
+
+    // 创建敌人精灵
+    this.refreshEnemySprites();
+    this.refreshItemSprites();
+
+    // 雾气遮罩（视野限制）
+    this.fogLayer = this.add.image(this.state.player.x, this.state.player.y, 'fog');
+    this.fogLayer.setDisplaySize(VIEW_W * 1.5, VIEW_H * 1.5);
+    this.fogLayer.setDepth(40);
+    this.fogLayer.setBlendMode(Phaser.BlendModes.MULTIPLY);
+
+    // 玩家受伤红色闪烁覆盖
+    this.playerHurtFlash = this.add.rectangle(
+      VIEW_W / 2, VIEW_H / 2, VIEW_W, VIEW_H, 0xff0000, 0,
+    );
+    this.playerHurtFlash.setScrollFactor(0);
+    this.playerHurtFlash.setDepth(60);
+
+    // 相机跟随玩家
+    this.cameras.main.startFollow(this.playerSprite, true, 0.2, 0.2);
+
+    // 输入
+    this.setupInput();
+
+    // 进入提示
+    this.hud.showToast(`第 ${this.state.dungeon.floor} 层 · 探索地牢`, 2000);
+
+    console.log('[Orgc] 游戏启动完成');
+  }
+
+  // ============ 渲染地牢瓦片 ============
+  private renderDungeon() {
+    if (this.tileLayer) this.tileLayer.destroy(true);
+    this.tileLayer = this.add.container(0, 0);
+    const d = this.state.dungeon;
+    // 用 Tilemap 太复杂，直接用 Image 数组（性能足够）
+    // 优化：只为可见瓦片创建精灵
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        const t = d.tiles[y * MAP_W + x];
+        if (t === TILE_TYPE.WALL) continue;  // 墙用背景色
+        let key = 'tile_floor_0';
+        if (t === TILE_TYPE.FLOOR) key = `tile_floor_${(x + y) % 4}`;
+        else if (t === TILE_TYPE.DOOR) key = 'tile_door';
+        else if (t === TILE_TYPE.STAIRS_DOWN) key = 'tile_stairs';
+        else if (t === TILE_TYPE.CHEST) key = 'tile_chest';
+        const sp = this.add.image(x * TILE_PIX + TILE_PIX / 2, y * TILE_PIX + TILE_PIX / 2, key);
+        sp.setOrigin(0.5);
+        sp.setScale(SCALE);
+        this.tileLayer.add(sp);
+      }
+    }
+    // 绘制墙壁（在地板周围）
+    this.renderWalls();
+    this.tileLayer.setDepth(0);
+  }
+
+  private renderWalls() {
+    const d = this.state.dungeon;
+    const g = this.add.graphics();
+    g.fillStyle(COLORS.wallDark, 1);
+    // 墙壁：在墙瓦片处画一个 32x32 方块
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        const t = d.tiles[y * MAP_W + x];
+        if (t === TILE_TYPE.WALL) {
+          // 检查是否相邻有非墙（暴露的墙才画，节省性能）
+          let exposed = false;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const nx = x + dx, ny = y + dy;
+              if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
+              if (d.tiles[ny * MAP_W + nx] !== TILE_TYPE.WALL) {
+                exposed = true; break;
+              }
+            }
+            if (exposed) break;
+          }
+          if (exposed) {
+            g.fillRect(x * TILE_PIX, y * TILE_PIX, TILE_PIX, TILE_PIX);
+          }
+        }
+      }
+    }
+    // 顶部高光
+    g.fillStyle(COLORS.wallLight, 1);
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        const t = d.tiles[y * MAP_W + x];
+        if (t === TILE_TYPE.WALL) {
+          // 上面是地板 → 画顶部高光
+          if (y + 1 < MAP_H && d.tiles[(y + 1) * MAP_W + x] !== TILE_TYPE.WALL) {
+            g.fillRect(x * TILE_PIX, y * TILE_PIX + TILE_PIX - 4, TILE_PIX, 4);
+          }
+        }
+      }
+    }
+    this.tileLayer.add(g);
+  }
+
+  // ============ 敌人/道具精灵刷新 ============
+  private refreshEnemySprites() {
+    for (const es of this.enemySprites) {
+      es.body.destroy();
+      es.hpBar.destroy();
+      es.hpBarBg.destroy();
+    }
+    this.enemySprites = [];
+    for (const e of this.state.dungeon.enemies) {
+      if (!e.alive) continue;
+      const cfg = ENEMY_TYPES[e.type];
+      const texKey = e.type === 'boss1' ? 'boss' : e.type;
+      const sizeMul = cfg.isBoss ? SCALE * 2 : SCALE;
+      const body = this.add.sprite(e.x, e.y, texKey, 0);
+      body.setScale(sizeMul);
+      body.setOrigin(0.5, 0.6);
+      body.setDepth(10);
+      // 血条
+      const barW = cfg.isBoss ? 60 : 24;
+      const barH = cfg.isBoss ? 5 : 3;
+      const hpBarBg = this.add.rectangle(e.x, e.y - (cfg.isBoss ? 30 : 16), barW + 2, barH + 2, 0x000000, 0.7);
+      hpBarBg.setDepth(11);
+      const hpBar = this.add.rectangle(e.x - barW / 2, e.y - (cfg.isBoss ? 30 : 16), barW, barH, 0xc02030);
+      hpBar.setOrigin(0, 0.5);
+      hpBar.setDepth(12);
+      this.enemySprites.push({ body, hpBar, hpBarBg, enemy: e });
+    }
+  }
+
+  private refreshItemSprites() {
+    for (const is of this.itemSprites) is.sprite.destroy();
+    this.itemSprites = [];
+    for (const item of this.state.dungeon.items) {
+      const cfg = ITEMS[item.itemId];
+      if (!cfg) continue;
+      let texKey = `item_${item.itemId}`;
+      // 材质/钥匙没有独立纹理，统一用 emoji 文本
+      let sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Text;
+      if (this.textures.exists(texKey)) {
+        sprite = this.add.sprite(item.x, item.y, texKey);
+        (sprite as Phaser.GameObjects.Sprite).setScale(SCALE);
+      } else {
+        // 用 emoji
+        sprite = this.add.text(item.x, item.y, cfg.icon, {
+          fontSize: '20px',
+        }).setOrigin(0.5);
+      }
+      sprite.setDepth(5);
+      this.itemSprites.push({
+        sprite: sprite as Phaser.GameObjects.Sprite,
+        item,
+        bob: Math.random() * Math.PI * 2,
+      });
+    }
+  }
+
+  // ============ 输入 ============
+  private setupInput() {
+    if (!this.input.keyboard) return;
+    this.keys = this.input.keyboard.addKeys('W,A,S,D,UP,LEFT,RIGHT,DOWN,SPACE,SHIFT,ONE,TWO,THREE,FOUR,FIVE') as any;
+    // 鼠标点击攻击
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      this.tryAttack(pointer.worldX, pointer.worldY);
+    });
+    // 数字键使用道具
+    const useFn = (idx: number) => () => {
+      if (this.hud.useSlot(idx)) {
+        const slot = this.state.inventory[idx];
+        if (slot) this.hud.showToast(`使用了 ${ITEMS[slot.itemId].name}`);
+      }
+    };
+    this.input.keyboard?.on('keydown-ONE', useFn(0));
+    this.input.keyboard?.on('keydown-TWO', useFn(1));
+    this.input.keyboard?.on('keydown-THREE', useFn(2));
+    this.input.keyboard?.on('keydown-FOUR', useFn(3));
+    this.input.keyboard?.on('keydown-FIVE', useFn(4));
+  }
+
+  // ============ 攻击 ============
+  private tryAttack(targetX?: number, targetY?: number) {
+    const p = this.state.player;
+    if (p.attackCooldown > 0 || p.dashTime > 0) return;
+    p.attackCooldown = PLAYER_BASE.attackCooldown * this.cooldownMul;
+    p.attacking = true;
+    p.attackTime = 0.18;
+    // 攻击方向
+    let angle: number;
+    if (targetX !== undefined && targetY !== undefined) {
+      angle = Math.atan2(targetY - p.y, targetX - p.x);
+    } else {
+      // 用 facing
+      const dirs = [
+        { x: 0, y: 1 },   // DOWN
+        { x: -1, y: 0 },  // LEFT
+        { x: 1, y: 0 },   // RIGHT
+        { x: 0, y: -1 },  // UP
+      ];
+      const d = dirs[p.facing];
+      angle = Math.atan2(d.y, d.x);
+    }
+    p.attackAngle = angle;
+    // 显示挥砍特效
+    this.slashFx.setPosition(p.x + Math.cos(angle) * 18, p.y + Math.sin(angle) * 18);
+    this.slashFx.setRotation(angle);
+    this.slashFx.setVisible(true);
+    this.slashFx.alpha = 1;
+    this.tweens.add({
+      targets: this.slashFx,
+      alpha: 0,
+      duration: 180,
+      onComplete: () => this.slashFx.setVisible(false),
+    });
+    // 武器精灵朝向
+    this.weaponSprite.setVisible(true);
+    this.weaponSprite.setPosition(p.x, p.y);
+    this.weaponSprite.setRotation(angle);
+    this.tweens.add({
+      targets: this.weaponSprite,
+      duration: 180,
+      onComplete: () => this.weaponSprite.setVisible(false),
+    });
+    // 检测命中
+    this.checkAttackHits(angle);
+  }
+
+  private checkAttackHits(angle: number) {
+    const p = this.state.player;
+    const range = PLAYER_BASE.attackRange;
+    const arc = PLAYER_BASE.attackArc;
+    for (const e of this.state.dungeon.enemies) {
+      if (!e.alive) continue;
+      const dx = e.x - p.x;
+      const dy = e.y - p.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > range + 8) continue;
+      const eAngle = Math.atan2(dy, dx);
+      let diff = Math.abs(eAngle - angle);
+      while (diff > Math.PI) diff = Math.abs(diff - Math.PI * 2);
+      if (diff > arc / 2) continue;
+      // 命中
+      const knockX = Math.cos(angle) * 200;
+      const knockY = Math.sin(angle) * 200;
+      const crit = Math.random() < 0.15;
+      const dmg = (p.attack + Math.floor(Math.random() * 4)) * (crit ? 2 : 1);
+      const killed = this.state.damageEnemy(e, dmg, knockX, knockY);
+      this.showDamageText(e.x, e.y - 12, String(dmg) + (crit ? '!' : ''), crit ? '#ffe040' : '#ffffff');
+      this.spawnBlood(e.x, e.y);
+      if (killed) {
+        this.hud.showToast(`击败 ${ENEMY_TYPES[e.type].name}！`);
+        // 掉落道具概率
+        if (Math.random() < 0.35) {
+          const drops = ['potion_hp', 'potion_sp', 'wood', 'iron'];
+          const drop = drops[Math.floor(Math.random() * drops.length)];
+          this.state.dungeon.items.push({
+            id: Date.now() + Math.random(),
+            itemId: drop,
+            x: e.x, y: e.y,
+            count: 1,
+            vy: 0,
+            pickupDelay: 0.5,
+          });
+          this.refreshItemSprites();
+        }
+        // Boss 击败
+        const cfg = ENEMY_TYPES[e.type];
+        if (cfg.isBoss) {
+          this.hud.showToast('击败 Boss！楼梯已开启', 2500);
+        }
+      }
+    }
+  }
+
+  // ============ 伤害飘字 ============
+  private showDamageText(x: number, y: number, text: string, color: string) {
+    const t = this.add.text(x, y, text, {
+      fontFamily: 'monospace',
+      fontSize: '14px',
+      color,
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(100);
+    this.damageTexts.push({ text: t, life: 0.8, vy: -40 });
+  }
+
+  // ============ 血迹粒子 ============
+  private spawnBlood(x: number, y: number) {
+    for (let i = 0; i < 6; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 30 + Math.random() * 60;
+      const p = this.add.image(x, y, 'fx_blood');
+      p.setScale(0.5 + Math.random());
+      p.setDepth(8);
+      p.setTint(0xff2030);
+      this.tweens.add({
+        targets: p,
+        x: x + Math.cos(angle) * speed,
+        y: y + Math.sin(angle) * speed,
+        alpha: 0,
+        duration: 400 + Math.random() * 200,
+        onComplete: () => p.destroy(),
+      });
+    }
+  }
+
+  // ============ 主更新循环 ============
+  update(time: number, delta: number) {
+    if (this.state.gameOver) {
+      this.hud.showDeath();
+      return;
+    }
+    if (this.state.pendingUpgrade) {
+      this.hud.update();
+      return;  // 升级时暂停
+    }
+    const dt = Math.min(delta / 1000, 0.05);
+    this.updatePlayer(dt);
+    this.updateEnemies(dt, time);
+    this.updateItems(dt);
+    this.updateProjectiles(dt);
+    this.updateSprites();
+    this.updateDamageTexts(dt);
+    this.checkInteractions();
+    // 相机跟随玩家
+    this.cameras.main.centerOn(this.state.player.x, this.state.player.y);
+    // 雾气跟随
+    this.fogLayer.setPosition(this.state.player.x, this.state.player.y);
+    // 受伤闪烁
+    if (this.state.player.hurtFlash > 0) {
+      this.playerHurtFlash?.setAlpha(this.state.player.hurtFlash * 0.4);
+    } else {
+      this.playerHurtFlash?.setAlpha(0);
+    }
+    this.hud.update();
+  }
+
+  // ============ 玩家更新 ============
+  private updatePlayer(dt: number) {
+    const p = this.state.player;
+    // 冷却递减
+    p.attackCooldown = Math.max(0, p.attackCooldown - dt);
+    p.attackTime = Math.max(0, p.attackTime - dt);
+    if (p.attackTime <= 0) p.attacking = false;
+    p.hurtFlash = Math.max(0, p.hurtFlash - dt);
+    p.invuln = Math.max(0, p.invuln - dt);
+    // 体力恢复
+    p.sp = Math.min(p.maxSp, p.sp + 12 * dt);
+
+    // 输入移动
+    let mx = 0, my = 0;
+    if (this.keys.W?.isDown || this.keys.UP?.isDown) my -= 1;
+    if (this.keys.S?.isDown || this.keys.DOWN?.isDown) my += 1;
+    if (this.keys.A?.isDown || this.keys.LEFT?.isDown) mx -= 1;
+    if (this.keys.D?.isDown || this.keys.RIGHT?.isDown) mx += 1;
+    // 归一化
+    if (mx !== 0 && my !== 0) {
+      const inv = 1 / Math.sqrt(2);
+      mx *= inv; my *= inv;
+    }
+    // 朝向
+    if (Math.abs(mx) > Math.abs(my)) {
+      p.facing = mx > 0 ? 2 : 1;  // RIGHT / LEFT
+    } else if (my !== 0) {
+      p.facing = my > 0 ? 0 : 3;  // DOWN / UP
+    }
+    // 冲刺
+    if (this.keys.SHIFT?.isDown && p.sp >= PLAYER_BASE.dashCost && p.dashTime <= 0 && (mx !== 0 || my !== 0)) {
+      p.dashTime = PLAYER_BASE.dashDuration;
+      p.dashDir = { x: mx, y: my };
+      p.sp -= PLAYER_BASE.dashCost;
+      p.invuln = Math.max(p.invuln, PLAYER_BASE.dashDuration + 0.05);
+    }
+    let speed = p.speed;
+    if (p.dashTime > 0) {
+      p.dashTime -= dt;
+      mx = p.dashDir.x;
+      my = p.dashDir.y;
+      speed = PLAYER_BASE.dashSpeed;
+      // 冲刺残影
+      if (Math.random() < 0.6) {
+        const ghost = this.add.sprite(p.x, p.y, 'player', p.facing * 4 + Math.floor(p.walkFrame));
+        ghost.setScale(SCALE);
+        ghost.setOrigin(0.5, 0.6);
+        ghost.setAlpha(0.4);
+        ghost.setTint(0x80c0ff);
+        this.tweens.add({
+          targets: ghost,
+          alpha: 0,
+          duration: 200,
+          onComplete: () => ghost.destroy(),
+        });
+      }
+    }
+    // 应用速度
+    p.vx = mx * speed;
+    p.vy = my * speed;
+    // 碰撞移动（分轴检测）
+    const newX = p.x + p.vx * dt;
+    if (isWalkable(this.state.dungeon, newX + (mx > 0 ? 8 : -8), p.y - 2) &&
+        isWalkable(this.state.dungeon, newX + (mx > 0 ? 8 : -8), p.y + 4)) {
+      p.x = newX;
+    }
+    const newY = p.y + p.vy * dt;
+    if (isWalkable(this.state.dungeon, p.x - 4, newY + (my > 0 ? 8 : -8)) &&
+        isWalkable(this.state.dungeon, p.x + 4, newY + (my > 0 ? 8 : -8))) {
+      p.y = newY;
+    }
+    // 行走动画
+    if (mx !== 0 || my !== 0) {
+      p.walkTime += dt;
+      if (p.walkTime > 0.15) {
+        p.walkTime = 0;
+        p.walkFrame = (p.walkFrame + 1) % 4;
+      }
+    } else {
+      p.walkFrame = 0;
+      p.walkTime = 0;
+    }
+  }
+
+  // ============ 敌人 AI ============
+  private updateEnemies(dt: number, time: number) {
+    const p = this.state.player;
+    const d = this.state.dungeon;
+    for (const e of d.enemies) {
+      if (!e.alive) continue;
+      const cfg = ENEMY_TYPES[e.type];
+      // 受伤闪烁递减
+      e.hurtFlash = Math.max(0, e.hurtFlash - dt);
+      // 击退递减
+      if (e.knockback.t > 0) {
+        e.knockback.t -= dt;
+        const kx = e.knockback.x * dt;
+        const ky = e.knockback.y * dt;
+        if (isWalkable(d, e.x + kx, e.y - 2) && isWalkable(d, e.x + kx, e.y + 4)) {
+          e.x += kx;
+        }
+        if (isWalkable(d, e.x - 4, e.y + ky) && isWalkable(d, e.x + 4, e.y + ky)) {
+          e.y += ky;
+        }
+        e.knockback.x *= 0.85;
+        e.knockback.y *= 0.85;
+        continue;
+      }
+      // 距离玩家
+      const dx = p.x - e.x;
+      const dy = p.y - e.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      // AI 状态切换
+      if (dist < cfg.detectRange) {
+        if (dist < cfg.attackRange) {
+          e.ai = 'attack';
+        } else {
+          e.ai = 'chase';
+        }
+      } else {
+        e.ai = 'wander';
+      }
+      let mvx = 0, mvy = 0;
+      if (e.ai === 'chase') {
+        // 朝玩家移动
+        if (dist > 0.1) {
+          mvx = dx / dist;
+          mvy = dy / dist;
+        }
+        // 朝向
+        if (Math.abs(mvx) > Math.abs(mvy)) e.facing = mvx > 0 ? 2 : 1;
+        else e.facing = mvy > 0 ? 0 : 3;
+      } else if (e.ai === 'attack') {
+        // 攻击玩家
+        if (time - e.lastAttack > cfg.attackCooldown * 1000) {
+          e.lastAttack = time;
+          const knockX = mvx * 100;
+          const knockY = mvy * 100;
+          const dmg = cfg.attack + Math.floor(Math.random() * 3);
+          this.state.damagePlayer(dmg, dx / dist * 150, dy / dist * 150);
+          this.showDamageText(p.x, p.y - 16, String(dmg), '#ff4040');
+          this.cameras.main.shake(80, 0.005);
+        }
+      } else if (e.ai === 'wander') {
+        // 随机游荡
+        if (time > e.wanderUntil || !e.wanderTarget) {
+          e.wanderTarget = {
+            x: e.x + (Math.random() - 0.5) * 80,
+            y: e.y + (Math.random() - 0.5) * 80,
+          };
+          e.wanderUntil = time + 2000 + Math.random() * 2000;
+        }
+        const wdx = e.wanderTarget.x - e.x;
+        const wdy = e.wanderTarget.y - e.y;
+        const wd = Math.sqrt(wdx * wdx + wdy * wdy);
+        if (wd > 4) {
+          mvx = wdx / wd * 0.4;
+          mvy = wdy / wd * 0.4;
+        }
+      }
+      // 应用速度
+      const sp = e.speed * (e.ai === 'wander' ? 0.4 : 1.0);
+      e.vx = mvx * sp;
+      e.vy = mvy * sp;
+      // 移动 + 碰撞
+      const newX = e.x + e.vx * dt;
+      if (isWalkable(d, newX + (mvx > 0 ? 6 : -6), e.y - 2) &&
+          isWalkable(d, newX + (mvx > 0 ? 6 : -6), e.y + 4)) {
+        e.x = newX;
+      }
+      const newY = e.y + e.vy * dt;
+      if (isWalkable(d, e.x - 4, newY + (mvy > 0 ? 6 : -6)) &&
+          isWalkable(d, e.x + 4, newY + (mvy > 0 ? 6 : -6))) {
+        e.y = newY;
+      }
+    }
+    // 清理死亡敌人
+    const before = d.enemies.length;
+    d.enemies = d.enemies.filter(e => e.alive);
+    if (d.enemies.length !== before) {
+      this.refreshEnemySprites();
+    }
+  }
+
+  // ============ 道具更新 ============
+  private updateItems(dt: number) {
+    const p = this.state.player;
+    const d = this.state.dungeon;
+    for (const it of d.items) {
+      if (it.pickupDelay > 0) {
+        it.pickupDelay -= dt;
+        continue;
+      }
+      // 距离玩家
+      const dx = p.x - it.x;
+      const dy = p.y - it.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 14) {
+        // 拾取
+        if (this.state.addItem(it.itemId, it.count)) {
+          const cfg = ITEMS[it.itemId];
+          this.hud.showToast(`获得 ${cfg.name} ×${it.count}`);
+          (it as any).picked = true;
+        }
+      } else if (dist < 50) {
+        // 吸附
+        it.x += dx / dist * 80 * dt;
+        it.y += dy / dist * 80 * dt;
+      }
+    }
+    const before = d.items.length;
+    d.items = d.items.filter(it => !(it as any).picked);
+    if (d.items.length !== before) {
+      this.refreshItemSprites();
+    }
+  }
+
+  private updateProjectiles(dt: number) {
+    // 暂无投射物（武器为近战）
+    void dt;
+  }
+
+  // ============ 精灵同步 ============
+  private updateSprites() {
+    const p = this.state.player;
+    // 玩家
+    this.playerSprite.setPosition(p.x, p.y);
+    const frame = p.facing * 4 + Math.floor(p.walkFrame);
+    this.playerSprite.setFrame(frame);
+    // 受伤闪烁
+    if (p.hurtFlash > 0 && Math.floor(p.hurtFlash * 20) % 2 === 0) {
+      this.playerSprite.setTint(0xff4040);
+    } else if (p.invuln > 0 && p.dashTime <= 0) {
+      this.playerSprite.setTint(0xffffff);
+    } else {
+      this.playerSprite.clearTint();
+    }
+    // 武器跟随
+    if (p.attacking) {
+      this.weaponSprite.setPosition(p.x, p.y);
+    }
+    // 敌人
+    for (const es of this.enemySprites) {
+      const e = es.enemy;
+      if (!e.alive) {
+        es.body.setVisible(false);
+        es.hpBar.setVisible(false);
+        es.hpBarBg.setVisible(false);
+        continue;
+      }
+      es.body.setPosition(e.x, e.y);
+      // 动画：根据 vx,vy 切换帧
+      const moving = Math.abs(e.vx) + Math.abs(e.vy) > 1;
+      const frame = moving ? Math.floor(Date.now() / 200) % 2 : 0;
+      es.body.setFrame(frame);
+      if (e.hurtFlash > 0) {
+        es.body.setTint(0xff8080);
+      } else {
+        es.body.clearTint();
+      }
+      // 血条
+      const cfg = ENEMY_TYPES[e.type];
+      const ratio = Math.max(0, e.hp / e.maxHp);
+      const barW = cfg.isBoss ? 60 : 24;
+      es.hpBar.setSize(barW * ratio, es.hpBar.height);
+      es.hpBar.setPosition(e.x - barW / 2, e.y - (cfg.isBoss ? 30 : 16));
+      es.hpBarBg.setPosition(e.x, e.y - (cfg.isBoss ? 30 : 16));
+    }
+    // 道具浮动
+    for (const is of this.itemSprites) {
+      is.bob += 0.05;
+      is.sprite.setPosition(is.item.x, is.item.y + Math.sin(is.bob) * 2);
+    }
+  }
+
+  // ============ 伤害文字更新 ============
+  private updateDamageTexts(dt: number) {
+    for (const dt2 of this.damageTexts) {
+      dt2.life -= dt;
+      dt2.text.y += dt2.vy * dt;
+      dt2.text.setAlpha(Math.max(0, dt2.life / 0.8));
+      if (dt2.life <= 0) {
+        dt2.text.destroy();
+      }
+    }
+    this.damageTexts = this.damageTexts.filter(d => d.life > 0);
+  }
+
+  // ============ 交互检查（楼梯/宝箱）============
+  private checkInteractions() {
+    if (this.isTransitioning) return;
+    const p = this.state.player;
+    const tx = Math.floor(p.x / 16);
+    const ty = Math.floor(p.y / 16);
+    const t = tileAt(this.state.dungeon, tx, ty);
+    if (t === TILE_TYPE.STAIRS_DOWN) {
+      // 检查 Boss 是否已清除
+      const bossAlive = this.state.dungeon.enemies.some(e => ENEMY_TYPES[e.type]?.isBoss && e.alive);
+      if (bossAlive) {
+        // Boss 还活着，不能下楼
+        this.hud.showToast('击败 Boss 才能下楼！', 800);
+      } else {
+        this.isTransitioning = true;
+        this.hud.showToast('下楼…', 1000);
+        this.time.delayedCall(400, () => {
+          this.state.nextFloor();
+          this.renderDungeon();
+          this.refreshEnemySprites();
+          this.refreshItemSprites();
+          this.hud.showToast(`第 ${this.state.dungeon.floor} 层`, 2000);
+          this.isTransitioning = false;
+        });
+      }
+    } else if (t === TILE_TYPE.CHEST) {
+      // 开宝箱
+      this.openChest(tx, ty);
+    }
+  }
+
+  private openChest(tx: number, ty: number) {
+    const d = this.state.dungeon;
+    // 把瓦片改成地板
+    d.tiles[ty * MAP_W + tx] = TILE_TYPE.FLOOR;
+    // 重新渲染该瓦片
+    this.renderDungeon();
+    // 随机奖励
+    const rewards = [
+      { id: 'potion_hp', count: 2 },
+      { id: 'potion_str', count: 1 },
+      { id: 'potion_def', count: 1 },
+      { id: 'gold', count: 30 },
+    ];
+    const r = rewards[Math.floor(Math.random() * rewards.length)];
+    if (r.id === 'gold') {
+      this.state.player.gold += r.count;
+      this.hud.showToast(`宝箱：金币 +${r.count}`);
+    } else {
+      this.state.addItem(r.id, r.count);
+      const cfg = ITEMS[r.id];
+      this.hud.showToast(`宝箱：${cfg.name} ×${r.count}`);
+    }
+  }
+}
