@@ -173,3 +173,43 @@ export const UPGRADES = [
   { id: 'sp', title: '持久耐力', desc: '最大体力 +30，并回满' },
   { id: 'cooldown', title: '战斗节奏', desc: '攻击冷却 -15%' },
 ];
+
+// ============ 商店商品 ============
+export interface ShopItem {
+  id: string;          // 物品 id（对应 ITEMS）或特殊武器 id
+  name: string;
+  icon: string;
+  desc: string;
+  price: number;
+  type: 'potion' | 'weapon' | 'material' | 'key';
+  // 武器特殊效果
+  weaponEffect?: {
+    attackUp?: number;
+    defenseUp?: number;
+    speedUp?: number;
+    heal?: number;
+  };
+}
+
+export const SHOP_ITEMS: ShopItem[] = [
+  // 药水类
+  { id: 'potion_hp', name: '生命药水', icon: '🧪', desc: '恢复 40 点生命', price: 15, type: 'potion' },
+  { id: 'potion_sp', name: '体力药水', icon: '💙', desc: '恢复 50 点体力', price: 12, type: 'potion' },
+  { id: 'potion_str', name: '力量药水', icon: '💪', desc: '永久 +3 攻击力', price: 40, type: 'potion' },
+  { id: 'potion_def', name: '防御药水', icon: '🛡️', desc: '永久 +2 防御力', price: 35, type: 'potion' },
+  // 武器类（一次性装备，立即生效）
+  { id: 'wpn_dagger', name: '生锈匕首', icon: '🗡️', desc: '攻击力 +5', price: 30, type: 'weapon',
+    weaponEffect: { attackUp: 5 } },
+  { id: 'wpn_sword', name: '铁剑', icon: '⚔️', desc: '攻击力 +10', price: 60, type: 'weapon',
+    weaponEffect: { attackUp: 10 } },
+  { id: 'wpn_axe', name: '战斧', icon: '🪓', desc: '攻击力 +16', price: 100, type: 'weapon',
+    weaponEffect: { attackUp: 16 } },
+  { id: 'wpn_shield', name: '铁盾', icon: '🛡️', desc: '防御力 +6', price: 50, type: 'weapon',
+    weaponEffect: { defenseUp: 6 } },
+  { id: 'wpn_boots', name: '疾风靴', icon: '👟', desc: '移动速度 +20%', price: 45, type: 'weapon',
+    weaponEffect: { speedUp: 0.2 } },
+  { id: 'wpn_armor', name: '皮甲', icon: '🥋', desc: '防御力 +4，生命 +20', price: 70, type: 'weapon',
+    weaponEffect: { defenseUp: 4, heal: 20 } },
+  // 材料/钥匙
+  { id: 'key', name: '地牢钥匙', icon: '🗝️', desc: '可开启宝箱', price: 25, type: 'key' },
+];

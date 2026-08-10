@@ -11,7 +11,7 @@ export interface Room {
   cx: number; cy: number;
   id: number;
   visited: boolean;
-  type: 'normal' | 'start' | 'boss' | 'treasure';
+  type: 'normal' | 'start' | 'boss' | 'treasure' | 'shop';
 }
 
 export interface EnemyState {
@@ -80,6 +80,7 @@ export interface DungeonState {
   startRoom: Room;
   bossRoom: Room;
   treasureRooms: Room[];
+  shops: Array<{ x: number; y: number }>;
   enemies: EnemyState[];
   items: ItemDrop[];
   projectiles: Projectile[];

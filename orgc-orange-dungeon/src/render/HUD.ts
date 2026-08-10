@@ -3,7 +3,8 @@
 // Orgc 橘子工作室
 
 import { GameState } from '../systems/GameState';
-import { ITEMS, MAP_W, MAP_H, TILE_TYPE, ENEMY_TYPES, UPGRADES } from '../config';
+import { ITEMS, MAP_W, MAP_H, TILE_TYPE, ENEMY_TYPES, UPGRADES, SHOP_ITEMS } from '../config';
+import type { ShopItem } from '../config';
 import type { DungeonState } from '../types';
 
 export class HUD {
@@ -29,6 +30,12 @@ export class HUD {
   private restartBtn: HTMLElement;
   private toastTimer: number | null = null;
   private cooldownMul = 1.0;
+  private shopModal: HTMLElement;
+  private shopList: HTMLElement;
+  private shopGold: HTMLElement;
+  private shopCloseBtn: HTMLElement;
+  private shopActive = false;
+  private purchasedIds: Set<string> = new Set();
 
   constructor(state: GameState) {
     this.state = state;
@@ -51,10 +58,17 @@ export class HUD {
     this.deathModal = document.getElementById('death-modal')!;
     this.deathStats = document.getElementById('death-stats')!;
     this.restartBtn = document.getElementById('restart-btn')!;
+    this.shopModal = document.getElementById('shop-modal')!;
+    this.shopList = document.getElementById('shop-list')!;
+    this.shopGold = document.getElementById('shop-gold')!;
+    this.shopCloseBtn = document.getElementById('shop-close')!;
 
     this.restartBtn.addEventListener('click', () => {
       this.deathModal.classList.remove('show');
       window.location.reload();
+    });
+    this.shopCloseBtn.addEventListener('click', () => {
+      this.closeShop();
     });
   }
 
@@ -231,5 +245,76 @@ export class HUD {
   hideAllModals() {
     this.upgradeModal.classList.remove('show');
     this.deathModal.classList.remove('show');
+    this.closeShop();
+  }
+
+  // ============ 商店 ============
+  isShopOpen(): boolean {
+    return this.shopActive;
+  }
+
+  openShop() {
+    this.shopActive = true;
+    this.purchasedIds.clear();  // 每次开店重置武器购买记录
+    this.renderShop();
+    this.shopModal.classList.add('show');
+  }
+
+  closeShop() {
+    this.shopActive = false;
+    this.shopModal.classList.remove('show');
+  }
+
+  private renderShop() {
+    this.shopGold.textContent = `你的金币：${this.state.player.gold}`;
+    this.shopList.innerHTML = '';
+    for (const item of SHOP_ITEMS) {
+      const soldOut = item.type === 'weapon' && this.purchasedIds.has(item.id);
+      const canAfford = this.state.player.gold >= item.price && !soldOut;
+      const div = document.createElement('div');
+      div.className = 'upgrade-item';
+      div.style.opacity = soldOut ? '0.4' : (canAfford ? '1' : '0.6');
+      const priceColor = soldOut ? '#888' : (canAfford ? '#ffe080' : '#c06060');
+      div.innerHTML = `
+        <div class="title">${item.icon} ${item.name} <span style="float:right;color:${priceColor}">${soldOut ? '已售罄' : item.price + '金'}</span></div>
+        <div class="desc">${item.desc}</div>
+      `;
+      if (canAfford) {
+        div.addEventListener('click', () => this.buyItem(item));
+      } else {
+        div.style.cursor = 'default';
+      }
+      this.shopList.appendChild(div);
+    }
+  }
+
+  private buyItem(item: ShopItem) {
+    const p = this.state.player;
+    if (p.gold < item.price) {
+      this.showToast('金币不足');
+      return;
+    }
+    p.gold -= item.price;
+    if (item.type === 'weapon') {
+      // 武器立即生效，标记已售罄
+      const eff = item.weaponEffect || {};
+      if (eff.attackUp) p.attack += eff.attackUp;
+      if (eff.defenseUp) p.defense += eff.defenseUp;
+      if (eff.speedUp) p.speed = Math.floor(p.speed * (1 + eff.speedUp));
+      if (eff.heal) {
+        p.maxHp += eff.heal;
+        p.hp = p.maxHp;
+      }
+      this.purchasedIds.add(item.id);
+      this.showToast(`购买了 ${item.name}！`);
+    } else if (item.type === 'key' || item.type === 'material') {
+      this.state.addItem(item.id, 1);
+      this.showToast(`购买了 ${item.name}`);
+    } else {
+      // 药水加到背包
+      this.state.addItem(item.id, 1);
+      this.showToast(`购买了 ${item.name}`);
+    }
+    this.renderShop();  // 刷新显示
   }
 }

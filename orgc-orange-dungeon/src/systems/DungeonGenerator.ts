@@ -136,6 +136,14 @@ export function generateDungeon(floor: number, seed: number): DungeonState {
     if (r) { r.type = 'treasure'; treasureRooms.push(r); }
   }
 
+  // 选 1 个商店房间（神秘商人）
+  const shopRooms: Room[] = [];
+  if (candidates.length > 0) {
+    const idx3 = Math.floor(rng() * candidates.length);
+    const r = candidates.splice(idx3, 1)[0];
+    if (r) { r.type = 'shop'; shopRooms.push(r); }
+  }
+
   // 放置楼梯（在 Boss 房间，因为击败 Boss 才能下楼）
   const stairsX = bossRoom.cx;
   const stairsY = bossRoom.cy;
@@ -144,6 +152,12 @@ export function generateDungeon(floor: number, seed: number): DungeonState {
   // 放置宝箱
   for (const r of treasureRooms) {
     setTile(r.cx, r.cy, TILE_TYPE.CHEST);
+  }
+
+  // 放置商人 NPC（用 SHOP 标记，位置记录在 dungeon.shops）
+  const shops: Array<{ x: number; y: number }> = [];
+  for (const r of shopRooms) {
+    shops.push({ x: r.cx, y: r.cy });
   }
 
   // 生成敌人
@@ -256,6 +270,7 @@ export function generateDungeon(floor: number, seed: number): DungeonState {
     startRoom,
     bossRoom,
     treasureRooms,
+    shops,
     enemies,
     items,
     projectiles: [],

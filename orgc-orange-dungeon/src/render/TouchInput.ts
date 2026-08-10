@@ -8,6 +8,7 @@ export class TouchInput {
   private btnAttack!: HTMLElement;
   private btnDash!: HTMLElement;
   private btnPotion!: HTMLElement;
+  private btnShop!: HTMLElement;
   private rotateHint!: HTMLElement;
   private container!: HTMLElement;
 
@@ -33,6 +34,7 @@ export class TouchInput {
     this.btnAttack = document.getElementById('btn-attack')!;
     this.btnDash = document.getElementById('btn-dash')!;
     this.btnPotion = document.getElementById('btn-potion')!;
+    this.btnShop = document.getElementById('btn-shop')!;
     this.rotateHint = document.getElementById('rotate-hint')!;
     this.detectAndSetup();
   }
@@ -153,6 +155,16 @@ export class TouchInput {
       // 通过自定义事件通知 GameScene
       window.dispatchEvent(new CustomEvent('orgc-quick-potion'));
     }, { passive: false });
+
+    // 商店按钮：靠近商人时打开交易
+    this.btnShop.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('orgc-open-shop'));
+    }, { passive: false });
+    this.btnShop.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('orgc-open-shop'));
+    });
   }
 
   private setupOrientation() {

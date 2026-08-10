@@ -13,6 +13,14 @@ import type { EnemyState, ItemDrop, DungeonState, PlayerState } from '../types';
 import { isWalkable, tileAt } from '../systems/DungeonGenerator';
 import { TouchInput } from '../render/TouchInput';
 
+// 商人 NPC 精灵
+interface ShopkeeperSprite {
+  sprite: Phaser.GameObjects.Text;
+  hint: Phaser.GameObjects.Text;
+  x: number;
+  y: number;
+}
+
 interface EnemySprite {
   body: Phaser.GameObjects.Sprite;
   hpBar: Phaser.GameObjects.Rectangle;
@@ -32,6 +40,7 @@ export class GameScene extends Phaser.Scene {
   private tileLayer!: Phaser.GameObjects.Container;
   private enemySprites: EnemySprite[] = [];
   private itemSprites: ItemSprite[] = [];
+  private shopkeepers: ShopkeeperSprite[] = [];
   private playerSprite!: Phaser.GameObjects.Sprite;
   private weaponSprite!: Phaser.GameObjects.Sprite;
   private slashFx!: Phaser.GameObjects.Sprite;
@@ -50,6 +59,7 @@ export class GameScene extends Phaser.Scene {
 
   shutdown() {
     window.removeEventListener('orgc-quick-potion', this.onQuickPotion);
+    window.removeEventListener('orgc-open-shop', this.onOpenShop);
   }
 
   create() {
@@ -86,6 +96,8 @@ export class GameScene extends Phaser.Scene {
     // 创建敌人精灵
     this.refreshEnemySprites();
     this.refreshItemSprites();
+    // 创建商人 NPC
+    this.refreshShopkeepers();
 
     // 雾气遮罩（视野限制）
     this.fogLayer = this.add.image(this.state.player.x, this.state.player.y, 'fog');
@@ -110,6 +122,8 @@ export class GameScene extends Phaser.Scene {
     this.touchInput = new TouchInput();
     // 快速药水按钮事件
     window.addEventListener('orgc-quick-potion', this.onQuickPotion);
+    // 触屏商店按钮事件
+    window.addEventListener('orgc-open-shop', this.onOpenShop);
 
     // 进入提示
     this.hud.showToast(`第 ${this.state.dungeon.floor} 层 · 探索地牢`, 2000);
@@ -131,6 +145,11 @@ export class GameScene extends Phaser.Scene {
       }
     }
     this.hud.showToast('背包没有药水');
+  };
+
+  // 触屏打开商店
+  private onOpenShop = () => {
+    this.openShopIfNear();
   };
 
   // ============ 渲染地牢瓦片 ============
@@ -260,13 +279,63 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // ============ 商人 NPC 精灵 ============
+  private refreshShopkeepers() {
+    for (const sk of this.shopkeepers) {
+      sk.sprite.destroy();
+      sk.hint.destroy();
+    }
+    this.shopkeepers = [];
+    for (const shop of this.state.dungeon.shops) {
+      const px = shop.x * TILE_PIX + TILE_PIX / 2;
+      const py = shop.y * TILE_PIX + TILE_PIX / 2;
+      // 商人本体（用 emoji 文本表示）
+      const sprite = this.add.text(px, py, '🧙', {
+        fontSize: '28px',
+      }).setOrigin(0.5);
+      sprite.setDepth(12);
+      // 浮动提示
+      const hint = this.add.text(px, py - 28, '🛒 商人', {
+        fontFamily: 'Microsoft YaHei, sans-serif',
+        fontSize: '11px',
+        color: '#ffe080',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }).setOrigin(0.5);
+      hint.setDepth(13);
+      // 轻微浮动动画
+      this.tweens.add({
+        targets: sprite,
+        y: py - 4,
+        duration: 1200,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.inOut',
+      });
+      this.shopkeepers.push({ sprite, hint, x: px, y: py });
+    }
+  }
+
   // ============ 输入 ============
   private setupInput() {
     if (!this.input.keyboard) return;
     this.keys = this.input.keyboard.addKeys('W,A,S,D,UP,LEFT,RIGHT,DOWN,SPACE,SHIFT,ONE,TWO,THREE,FOUR,FIVE') as any;
-    // 鼠标点击攻击
+    // 鼠标点击：先检查是否点中商人，否则攻击
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      // 优先检测商人
+      for (const sk of this.shopkeepers) {
+        const dx = sk.x - pointer.worldX;
+        const dy = sk.y - pointer.worldY;
+        if (dx * dx + dy * dy < 24 * 24) {
+          this.openShopIfNear();
+          return;
+        }
+      }
       this.tryAttack(pointer.worldX, pointer.worldY);
+    });
+    // E 键打开商店
+    this.input.keyboard?.on('keydown-E', () => {
+      this.openShopIfNear();
     });
     // 数字键使用道具
     const useFn = (idx: number) => () => {
@@ -280,6 +349,21 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-THREE', useFn(2));
     this.input.keyboard?.on('keydown-FOUR', useFn(3));
     this.input.keyboard?.on('keydown-FIVE', useFn(4));
+  }
+
+  // 检查靠近商人则打开商店
+  private openShopIfNear() {
+    if (this.hud.isShopOpen()) return;
+    const p = this.state.player;
+    for (const sk of this.shopkeepers) {
+      const dx = sk.x - p.x;
+      const dy = sk.y - p.y;
+      if (dx * dx + dy * dy < 48 * 48) {
+        this.hud.openShop();
+        return;
+      }
+    }
+    this.hud.showToast('需要靠近商人才能交易');
   }
 
   // ============ 攻击 ============
@@ -418,6 +502,10 @@ export class GameScene extends Phaser.Scene {
       this.hud.update();
       return;  // 升级时暂停
     }
+    if (this.hud.isShopOpen()) {
+      this.hud.update();
+      return;  // 商店打开时暂停游戏
+    }
     const dt = Math.min(delta / 1000, 0.05);
     this.updatePlayer(dt);
     this.updateEnemies(dt, time);
@@ -426,6 +514,7 @@ export class GameScene extends Phaser.Scene {
     this.updateSprites();
     this.updateDamageTexts(dt);
     this.checkInteractions();
+    this.checkShopNearby();
     // 相机跟随玩家
     this.cameras.main.centerOn(this.state.player.x, this.state.player.y);
     // 雾气跟随
@@ -437,6 +526,27 @@ export class GameScene extends Phaser.Scene {
       this.playerHurtFlash?.setAlpha(0);
     }
     this.hud.update();
+  }
+
+  // ============ 商店交互检测 ============
+  private shopPromptShown = false;
+  private checkShopNearby() {
+    const p = this.state.player;
+    let near = false;
+    for (const sk of this.shopkeepers) {
+      const dx = sk.x - p.x;
+      const dy = sk.y - p.y;
+      if (dx * dx + dy * dy < 40 * 40) {
+        near = true;
+        break;
+      }
+    }
+    if (near && !this.shopPromptShown) {
+      this.hud.showToast('按 E 或点击商人交易', 1200);
+      this.shopPromptShown = true;
+    } else if (!near && this.shopPromptShown) {
+      this.shopPromptShown = false;
+    }
   }
 
   // ============ 玩家更新 ============
@@ -776,6 +886,7 @@ export class GameScene extends Phaser.Scene {
           this.renderDungeon();
           this.refreshEnemySprites();
           this.refreshItemSprites();
+          this.refreshShopkeepers();
           this.hud.showToast(`第 ${this.state.dungeon.floor} 层`, 2000);
           this.isTransitioning = false;
         });
@@ -792,21 +903,45 @@ export class GameScene extends Phaser.Scene {
     d.tiles[ty * MAP_W + tx] = TILE_TYPE.FLOOR;
     // 重新渲染该瓦片
     this.renderDungeon();
-    // 随机奖励
-    const rewards = [
-      { id: 'potion_hp', count: 2 },
-      { id: 'potion_str', count: 1 },
-      { id: 'potion_def', count: 1 },
-      { id: 'gold', count: 30 },
-    ];
-    const r = rewards[Math.floor(Math.random() * rewards.length)];
-    if (r.id === 'gold') {
-      this.state.player.gold += r.count;
-      this.hud.showToast(`宝箱：金币 +${r.count}`);
-    } else {
-      this.state.addItem(r.id, r.count);
-      const cfg = ITEMS[r.id];
-      this.hud.showToast(`宝箱：${cfg.name} ×${r.count}`);
+    // 保底金币（楼层越高越多）
+    const baseGold = 15 + d.floor * 5 + Math.floor(Math.random() * 20);
+    this.state.player.gold += baseGold;
+    this.state.totalGold += baseGold;
+    this.hud.showToast(`宝箱：金币 +${baseGold}`);
+    // 30% 概率额外掉武器/装备
+    const luck = Math.random();
+    if (luck < 0.15) {
+      // 武器（直接加属性）
+      const weapons = [
+        { name: '锋利匕首', atk: 3 },
+        { name: '骑士剑', atk: 6 },
+        { name: '战锤', atk: 9 },
+      ];
+      const w = weapons[Math.floor(Math.random() * weapons.length)];
+      this.state.player.attack += w.atk;
+      this.hud.showToast(`宝箱：${w.name}！攻击 +${w.atk}`, 2000);
+    } else if (luck < 0.25) {
+      // 防具
+      const armors = [
+        { name: '皮甲', def: 2 },
+        { name: '锁子甲', def: 4 },
+      ];
+      const a = armors[Math.floor(Math.random() * armors.length)];
+      this.state.player.defense += a.def;
+      this.hud.showToast(`宝箱：${a.name}！防御 +${a.def}`, 2000);
+    } else if (luck < 0.45) {
+      // 药水
+      const potions = ['potion_hp', 'potion_sp', 'potion_str', 'potion_def'];
+      const p = potions[Math.floor(Math.random() * potions.length)];
+      this.state.addItem(p, 1);
+      const cfg = ITEMS[p];
+      this.hud.showToast(`宝箱：${cfg.name} ×1`, 2000);
+    } else if (luck < 0.55) {
+      // 额外金币大礼包
+      const bonus = 30 + d.floor * 10;
+      this.state.player.gold += bonus;
+      this.state.totalGold += bonus;
+      this.hud.showToast(`宝箱：金币大礼包 +${bonus}！`, 2000);
     }
   }
 }

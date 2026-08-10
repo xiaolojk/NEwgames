@@ -212,19 +212,68 @@
         border-color: #60e070;
         font-size: 24px;
       }
-      /* 顶部状态栏在小屏上更紧凑 */
-      @media (max-width: 600px) {
-        .bar-track { width: 90px; }
-        .stat-panel { font-size: 11px; padding: 4px 6px; }
-        #minimap { width: 100px; height: 100px; }
-        .hint { display: none; }
-        .bottombar { bottom: 170px; }
-        .slot { width: 38px; height: 38px; }
-        .slot-icon { font-size: 18px; }
+      .btn-shop {
+        width: 54px; height: 54px;
+        background: radial-gradient(circle at 35% 35%, #c080ff, #6020a0);
+        border-color: #d0a0ff;
+        font-size: 22px;
       }
-      @media (max-width: 400px) {
-        .bar-track { width: 70px; }
+      /* ============ 手机端 HUD 重排 ============ */
+      /* 横屏手机：高度小，顶部状态栏极简化，背包移到右上方靠下 */
+      @media (max-width: 900px) and (orientation: landscape) {
+        /* 顶部状态栏：单行紧凑 */
+        .topbar {
+          top: 4px; left: 4px; right: 4px;
+          flex-direction: row; gap: 4px;
+        }
+        .stat-panel {
+          font-size: 10px; padding: 3px 6px;
+          border-radius: 4px;
+        }
+        .bar { margin: 1px 0; gap: 4px; }
+        .bar-label { width: 18px; font-size: 9px; }
+        .bar-track { width: 60px; height: 8px; }
+        .bar-value { font-size: 9px; min-width: 38px; }
+        /* 第二个面板（楼层/金币）紧凑 */
+        .stat-panel:nth-child(2) { font-size: 10px; }
+        .floor-info { font-size: 12px; }
+        /* 小地图：缩小放右上 */
+        #minimap {
+          top: 4px; right: 4px;
+          width: 70px; height: 70px;
+          border-radius: 4px;
+        }
+        /* 背包栏：移到右侧中部，竖排，避开摇杆和按钮 */
+        .bottombar {
+          bottom: auto; top: 50%;
+          right: 4px; left: auto;
+          transform: translateY(-50%);
+          flex-direction: column;
+          gap: 3px; padding: 3px;
+          border-radius: 5px;
+        }
+        .slot { width: 34px; height: 34px; border-radius: 3px; }
+        .slot-icon { font-size: 16px; }
+        .slot-count { font-size: 9px; }
+        /* 隐藏键盘操作提示 */
+        .hint { display: none; }
+      }
+      /* 竖屏手机（虽然提示横屏，但也兼容） */
+      @media (max-width: 600px) and (orientation: portrait) {
+        .bar-track { width: 80px; }
+        .stat-panel { font-size: 10px; padding: 3px 5px; }
         #minimap { width: 80px; height: 80px; }
+        .hint { display: none; }
+        .bottombar { bottom: 180px; }
+        .slot { width: 36px; height: 36px; }
+        .slot-icon { font-size: 17px; }
+      }
+      /* 极小屏 */
+      @media (max-width: 400px) {
+        .bar-track { width: 50px; }
+        #minimap { width: 60px; height: 60px; }
+        .slot { width: 30px; height: 30px; }
+        .slot-icon { font-size: 14px; }
       }
       /* 横屏提示 */
       #rotate-hint {
@@ -296,6 +345,15 @@
         <button class="btn" id="restart-btn">重新开始</button>
       </div>
     </div>
+    <!-- 商店对话框 -->
+    <div class="modal" id="shop-modal">
+      <div class="modal-box" style="max-width:520px">
+        <h2>🛒 神秘商人</h2>
+        <p id="shop-gold" style="color:#ffe080;margin-bottom:8px">你的金币：0</p>
+        <div class="upgrade-list" id="shop-list" style="max-height:60vh;overflow-y:auto"></div>
+        <button class="btn" id="shop-close" style="margin-top:8px">离开</button>
+      </div>
+    </div>
     <!-- 触屏控制 -->
     <div id="touch-controls">
       <div id="joystick">
@@ -303,6 +361,7 @@
         <div id="joystick-knob"></div>
       </div>
       <div id="action-buttons">
+        <button class="action-btn btn-shop" id="btn-shop">🛒</button>
         <button class="action-btn btn-potion" id="btn-potion">🧪</button>
         <button class="action-btn btn-dash" id="btn-dash">⚡</button>
         <button class="action-btn btn-attack" id="btn-attack">⚔️</button>
