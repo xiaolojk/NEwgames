@@ -1,21 +1,29 @@
 name: 部署到服务器
 
-# 通过 SSH 自动部署到你的服务器
-# 需要在 GitHub 仓库 Settings → Secrets 添加：
+# 通过 SSH 自动部署到你的服务器（可选）
+# 需要在 GitHub 仓库 Settings → Secrets and variables → Actions 添加：
 #   SSH_HOST     服务器 IP（如 202.189.10.3）
 #   SSH_PORT     SSH 端口（如 30022）
 #   SSH_USER     用户名（如 root）
 #   SSH_PASSWORD 密码
+#
+# 未配置 secrets 时此 workflow 会跳过，不影响 release.yml 的运行
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      force:
+        description: '强制部署（即使 secrets 未配置也会尝试）'
+        required: false
+        default: 'false'
 
 jobs:
   deploy:
     name: SSH 部署到服务器
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: orgc-orange-dungeon
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -25,6 +33,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: orgc-orange-dungeon/package-lock.json
 
       - name: 安装依赖并构建
         run: |
@@ -35,17 +44,6 @@ jobs:
       - name: 打包产物
         run: tar -czf dungeon.tar.gz -C dist .
 
-      - name: 上传到服务器并部署
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          port: ${{ secrets.SSH_PORT }}
-          username: ${{ secrets.SSH_USER }}
-          password: ${{ secrets.SSH_PASSWORD }}
-          script: |
-            echo "=== 接收文件 ==="
-            mkdir -p /var/www/orange-dungeon
-
       - name: 通过 scp 上传产物
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -53,7 +51,7 @@ jobs:
           port: ${{ secrets.SSH_PORT }}
           username: ${{ secrets.SSH_USER }}
           password: ${{ secrets.SSH_PASSWORD }}
-          source: "dungeon.tar.gz"
+          source: "orgc-orange-dungeon/dungeon.tar.gz"
           target: "/tmp/"
 
       - name: 解压并配置 Nginx
@@ -66,9 +64,10 @@ jobs:
           script: |
             set -e
             echo "=== 解压到 Web 目录 ==="
+            mkdir -p /var/www/orange-dungeon
             rm -rf /var/www/orange-dungeon/*
-            tar -xzf /tmp/dungeon.tar.gz -C /var/www/orange-dungeon
-            rm -f /tmp/dungeon.tar.gz
+            tar -xzf /tmp/orgc-orange-dungeon/dungeon.tar.gz -C /var/www/orange-dungeon
+            rm -rf /tmp/orgc-orange-dungeon
             chmod -R 755 /var/www/orange-dungeon
 
             echo "=== 安装 Nginx（如未安装）==="
@@ -87,25 +86,21 @@ server {
     root /var/www/orange-dungeon;
     index index.html;
 
-    # 游戏主页面
     location / {
         try_files $uri $uri/ /index.html;
     }
 
-    # 静态资源长缓存
     location /assets/ {
         expires 30d;
         add_header Cache-Control "public, immutable";
         access_log off;
     }
 
-    # gzip 压缩
     gzip on;
     gzip_types text/css application/javascript application/json image/svg+xml;
     gzip_min_length 1024;
     gzip_comp_level 6;
 
-    # 安全头
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "SAMEORIGIN" always;
 }
@@ -115,10 +110,8 @@ NGINX_EOF
             ln -sf /etc/nginx/sites-available/orange-dungeon /etc/nginx/sites-enabled/
             rm -f /etc/nginx/sites-enabled/default
 
-            echo "=== 测试 Nginx 配置 ==="
+            echo "=== 测试并重启 Nginx ==="
             nginx -t
-
-            echo "=== 重启 Nginx ==="
             systemctl restart nginx
             systemctl enable nginx
 
@@ -129,5 +122,3 @@ NGINX_EOF
 
             echo "=== 部署完成 ==="
             echo "访问地址: http://$(curl -s ifconfig.me 2>/dev/null || echo '服务器IP')"
-            echo "Web 根目录: /var/www/orange-dungeon"
-            ls -la /var/www/orange-dungeon/

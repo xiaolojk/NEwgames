@@ -6,6 +6,9 @@ name: 构建并发布 Release
 on:
   push:
     branches: [main]
+    paths:
+      - 'orgc-orange-dungeon/**'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 permissions:
@@ -15,6 +18,9 @@ jobs:
   release:
     name: 构建并发布
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: orgc-orange-dungeon
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -24,6 +30,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: orgc-orange-dungeon/package-lock.json
 
       - name: 安装依赖
         run: npm ci || npm install
