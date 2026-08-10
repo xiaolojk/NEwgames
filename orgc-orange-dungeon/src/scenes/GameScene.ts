@@ -10,7 +10,7 @@ import {
   TILE_TYPE, COLORS, PLAYER_BASE, ENEMY_TYPES, ITEMS,
 } from '../config';
 import type { EnemyState, ItemDrop, DungeonState, PlayerState } from '../types';
-import { isWalkable, tileAt } from '../systems/DungeonGenerator';
+import { isWalkable, tileAt, circleCollides } from '../systems/DungeonGenerator';
 import { TouchInput } from '../render/TouchInput';
 
 // 商人 NPC 精灵
@@ -52,6 +52,10 @@ export class GameScene extends Phaser.Scene {
   private bloodParticles: Phaser.GameObjects.Particles.ParticleEmitter[] = [];
   private isTransitioning = false;
   private touchInput!: TouchInput;
+  // 打击爽感：命中停顿（hit-stop）让重击有冲击力
+  private hitStopUntil = 0;
+  // 武器拖尾点
+  private weaponTrail: Phaser.GameObjects.Graphics[] = [];
 
   constructor() {
     super('Game');
@@ -63,8 +67,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
-    // 创建新游戏状态
-    this.state = new GameState();
+    // 创建游戏状态：自动从 localStorage 加载存档（若有）
+    this.state = new GameState(true);
     this.cooldownMul = 1.0;
     this.hud = new HUD(this.state);
     this.hud.setCooldownMul(this.cooldownMul);
@@ -389,34 +393,87 @@ export class GameScene extends Phaser.Scene {
       angle = Math.atan2(d.y, d.x);
     }
     p.attackAngle = angle;
-    // 显示挥砍特效
+    // 显示挥砍特效：放大旋转冲击感
     this.slashFx.setPosition(p.x + Math.cos(angle) * 18, p.y + Math.sin(angle) * 18);
     this.slashFx.setRotation(angle);
     this.slashFx.setVisible(true);
     this.slashFx.alpha = 1;
+    this.slashFx.setScale(SCALE * 0.6);
     this.tweens.add({
       targets: this.slashFx,
       alpha: 0,
-      duration: 180,
+      scale: SCALE * 1.4,
+      duration: 200,
+      ease: 'Quad.out',
       onComplete: () => this.slashFx.setVisible(false),
     });
-    // 武器精灵朝向
+    // 武器精灵挥砍动画：从 -60° 摆到 +60°（约 120° 弧线）
     this.weaponSprite.setVisible(true);
     this.weaponSprite.setPosition(p.x, p.y);
-    this.weaponSprite.setRotation(angle);
+    this.weaponSprite.setOrigin(0.1, 0.5);
+    this.weaponSprite.setRotation(angle - 1.0);
+    this.weaponSprite.setScale(SCALE);
+    this.weaponSprite.alpha = 1;
     this.tweens.add({
       targets: this.weaponSprite,
+      rotation: angle + 1.0,
       duration: 180,
-      onComplete: () => this.weaponSprite.setVisible(false),
+      ease: 'Quad.out',
+      onComplete: () => {
+        this.weaponSprite.setVisible(false);
+      },
     });
+    // 武器拖尾：在挥砍路径上画弧线
+    this.spawnWeaponTrail(p.x, p.y, angle);
     // 检测命中
     this.checkAttackHits(angle);
+  }
+
+  // 武器拖尾：绘制挥砍弧线，淡出
+  private spawnWeaponTrail(cx: number, cy: number, angle: number) {
+    const g = this.add.graphics();
+    g.setDepth(45);
+    const arc = PLAYER_BASE.attackArc;
+    const r1 = 16;
+    const r2 = PLAYER_BASE.attackRange + 6;
+    // 用三角扇形画半透明拖尾
+    g.fillStyle(0xfff0c0, 0.4);
+    g.beginPath();
+    g.moveTo(cx, cy);
+    const steps = 8;
+    for (let i = 0; i <= steps; i++) {
+      const a = angle - arc / 2 + (arc * i / steps);
+      g.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+    }
+    g.lineTo(cx, cy);
+    g.closePath();
+    g.fillPath();
+    // 内圈亮白
+    g.fillStyle(0xffffff, 0.5);
+    g.beginPath();
+    g.moveTo(cx, cy);
+    for (let i = 0; i <= steps; i++) {
+      const a = angle - arc / 2 + (arc * i / steps);
+      g.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+    }
+    g.closePath();
+    g.fillPath();
+    this.tweens.add({
+      targets: g,
+      alpha: 0,
+      duration: 220,
+      ease: 'Quad.out',
+      onComplete: () => g.destroy(),
+    });
   }
 
   private checkAttackHits(angle: number) {
     const p = this.state.player;
     const range = PLAYER_BASE.attackRange;
     const arc = PLAYER_BASE.attackArc;
+    let hitAny = false;
+    let hitCrit = false;
+    let hitKilled = false;
     for (const e of this.state.dungeon.enemies) {
       if (!e.alive) continue;
       const dx = e.x - p.x;
@@ -428,15 +485,27 @@ export class GameScene extends Phaser.Scene {
       while (diff > Math.PI) diff = Math.abs(diff - Math.PI * 2);
       if (diff > arc / 2) continue;
       // 命中
-      const knockX = Math.cos(angle) * 200;
-      const knockY = Math.sin(angle) * 200;
-      const crit = Math.random() < 0.15;
-      const dmg = (p.attack + Math.floor(Math.random() * 4)) * (crit ? 2 : 1);
+      const crit = Math.random() < 0.18;
+      const dmgMul = crit ? 2.2 : 1.0;
+      const dmg = Math.floor((p.attack + Math.floor(Math.random() * 4)) * dmgMul);
+      // 击退：暴击 1.8 倍，普通 1.0 倍
+      const knockForce = crit ? 360 : 220;
+      const knockX = Math.cos(angle) * knockForce;
+      const knockY = Math.sin(angle) * knockForce;
       const killed = this.state.damageEnemy(e, dmg, knockX, knockY);
-      this.showDamageText(e.x, e.y - 12, String(dmg) + (crit ? '!' : ''), crit ? '#ffe040' : '#ffffff');
+      hitAny = true;
+      if (crit) hitCrit = true;
+      if (killed) hitKilled = true;
+      // 伤害飘字：暴击大号金色 + 普通白色
+      this.showDamageText(e.x, e.y - 12, String(dmg) + (crit ? '!' : ''),
+        crit ? '#ffe040' : '#ffffff', crit);
+      // 命中粒子：火花 + 血溅
+      this.spawnHitSparks(e.x, e.y, angle, crit);
       this.spawnBlood(e.x, e.y);
       if (killed) {
         this.hud.showToast(`击败 ${ENEMY_TYPES[e.type].name}！`);
+        // 击杀爆炸粒子
+        this.spawnDeathBurst(e.x, e.y, ENEMY_TYPES[e.type].color);
         // 掉落道具概率
         if (Math.random() < 0.35) {
           const drops = ['potion_hp', 'potion_sp', 'wood', 'iron'];
@@ -458,18 +527,104 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
+    // === 打击爽感反馈 ===
+    if (hitAny) {
+      // 命中停顿：暴击 90ms / 普通 45ms / 击杀 120ms
+      const stopMs = hitKilled ? 120 : (hitCrit ? 90 : 45);
+      this.hitStopUntil = this.time.now + stopMs;
+      // 屏幕震动：暴击更强
+      const shakeDur = hitCrit ? 180 : 90;
+      const shakeIntensity = hitCrit ? 0.018 : 0.008;
+      this.cameras.main.shake(shakeDur, shakeIntensity);
+      // 击杀时白光闪屏
+      if (hitKilled) this.flashScreen(0xffffff, 0.25, 120);
+      else if (hitCrit) this.flashScreen(0xffe040, 0.12, 80);
+    }
+  }
+
+  // 屏幕闪光（击杀/暴击反馈）
+  private flashScreen(color: number, alpha: number, duration: number) {
+    if (!this.playerHurtFlash) return;
+    const flash = this.add.rectangle(
+      VIEW_W / 2, VIEW_H / 2, VIEW_W, VIEW_H, color, alpha,
+    );
+    flash.setScrollFactor(0);
+    flash.setDepth(70);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      duration,
+      onComplete: () => flash.destroy(),
+    });
+  }
+
+  // 命中火花粒子（暴击带星形迸射）
+  private spawnHitSparks(x: number, y: number, angle: number, crit: boolean) {
+    const count = crit ? 10 : 6;
+    for (let i = 0; i < count; i++) {
+      const spread = crit ? Math.PI * 1.4 : Math.PI * 0.8;
+      const a = angle + (Math.random() - 0.5) * spread;
+      const speed = crit ? 90 + Math.random() * 80 : 50 + Math.random() * 60;
+      const spark = this.add.image(x, y, 'fx_blood');
+      spark.setScale(crit ? 0.7 + Math.random() * 0.5 : 0.4 + Math.random() * 0.3);
+      spark.setDepth(20);
+      spark.setTint(crit ? 0xffe040 : 0xfff0a0);  // 火花金黄
+      this.tweens.add({
+        targets: spark,
+        x: x + Math.cos(a) * speed,
+        y: y + Math.sin(a) * speed,
+        alpha: 0,
+        scale: 0,
+        duration: crit ? 380 : 280,
+        ease: 'Quad.out',
+        onComplete: () => spark.destroy(),
+      });
+    }
+  }
+
+  // 击杀爆炸粒子环
+  private spawnDeathBurst(x: number, y: number, color: number) {
+    const count = 14;
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2 + Math.random() * 0.3;
+      const speed = 70 + Math.random() * 90;
+      const p = this.add.image(x, y, 'fx_blood');
+      p.setScale(0.6 + Math.random() * 0.8);
+      p.setDepth(15);
+      p.setTint(color);
+      this.tweens.add({
+        targets: p,
+        x: x + Math.cos(a) * speed,
+        y: y + Math.sin(a) * speed,
+        alpha: 0,
+        duration: 500 + Math.random() * 200,
+        ease: 'Quad.out',
+        onComplete: () => p.destroy(),
+      });
+    }
   }
 
   // ============ 伤害飘字 ============
-  private showDamageText(x: number, y: number, text: string, color: string) {
+  private showDamageText(x: number, y: number, text: string, color: string, crit = false) {
     const t = this.add.text(x, y, text, {
       fontFamily: 'monospace',
-      fontSize: '14px',
+      fontSize: crit ? '22px' : '14px',
       color,
       stroke: '#000000',
-      strokeThickness: 3,
+      strokeThickness: crit ? 5 : 3,
     }).setOrigin(0.5).setDepth(100);
-    this.damageTexts.push({ text: t, life: 0.8, vy: -40 });
+    // 暴击字弹出动画
+    if (crit) {
+      t.setScale(0.4);
+      this.tweens.add({
+        targets: t,
+        scale: 1.2,
+        duration: 100,
+        yoyo: true,
+        ease: 'Back.out',
+      });
+    }
+    this.damageTexts.push({ text: t, life: crit ? 1.0 : 0.8, vy: crit ? -55 : -40 });
   }
 
   // ============ 血迹粒子 ============
@@ -506,15 +661,23 @@ export class GameScene extends Phaser.Scene {
       this.hud.update();
       return;  // 商店打开时暂停游戏
     }
-    const dt = Math.min(delta / 1000, 0.05);
-    this.updatePlayer(dt);
-    this.updateEnemies(dt, time);
-    this.updateItems(dt);
-    this.updateProjectiles(dt);
+    // 命中停顿（hit-stop）：重击时短暂冻结整个世界，强化打击感
+    // 期间只更新视觉特效（伤害飘字、相机震动），冻结玩家/敌人/AI
+    const inHitStop = time < this.hitStopUntil;
+    const dt = inHitStop ? 0 : Math.min(delta / 1000, 0.05);
+    if (!inHitStop) {
+      this.updatePlayer(dt);
+      this.updateEnemies(dt, time);
+      this.updateItems(dt);
+      this.updateProjectiles(dt);
+    }
     this.updateSprites();
-    this.updateDamageTexts(dt);
-    this.checkInteractions();
-    this.checkShopNearby();
+    this.updateDamageTexts(dt > 0 ? dt : 0.016);  // 飘字继续动
+    if (!inHitStop) {
+      this.checkInteractions();
+      this.checkShopNearby();
+      this.state.autoSave(time);  // 自动存档
+    }
     // 相机跟随玩家
     this.cameras.main.centerOn(this.state.player.x, this.state.player.y);
     // 雾气跟随
@@ -637,21 +800,20 @@ export class GameScene extends Phaser.Scene {
     // 应用速度
     p.vx = mx * speed;
     p.vy = my * speed;
-    // 碰撞移动（分轴检测）
+    // 圆形碰撞移动（分轴检测，防穿墙）
+    const PR = 6;  // 玩家碰撞半径
     const newX = p.x + p.vx * dt;
-    if (isWalkable(this.state.dungeon, newX + (mx > 0 ? 8 : -8), p.y - 2) &&
-        isWalkable(this.state.dungeon, newX + (mx > 0 ? 8 : -8), p.y + 4)) {
+    if (!circleCollides(this.state.dungeon, newX, p.y, PR)) {
       p.x = newX;
     }
     const newY = p.y + p.vy * dt;
-    if (isWalkable(this.state.dungeon, p.x - 4, newY + (my > 0 ? 8 : -8)) &&
-        isWalkable(this.state.dungeon, p.x + 4, newY + (my > 0 ? 8 : -8))) {
+    if (!circleCollides(this.state.dungeon, p.x, newY, PR)) {
       p.y = newY;
     }
-    // 行走动画
+    // 行走动画：60fps 帧率切换（每 0.05s 切一帧，4 帧循环 → 20fps 显示帧率，体感流畅）
     if (mx !== 0 || my !== 0) {
       p.walkTime += dt;
-      if (p.walkTime > 0.15) {
+      if (p.walkTime > 0.05) {  // 60fps 动画速率（4 帧循环）
         p.walkTime = 0;
         p.walkFrame = (p.walkFrame + 1) % 4;
       }
@@ -670,17 +832,20 @@ export class GameScene extends Phaser.Scene {
       const cfg = ENEMY_TYPES[e.type];
       // 受伤闪烁递减
       e.hurtFlash = Math.max(0, e.hurtFlash - dt);
+      // 动画时间累计（90fps 平滑动画：每 0.11s 切一帧，2 帧循环 → 视觉上 9fps 显示帧率，
+      // 但配合缩放呼吸 + Y 轴浮动让动作连续不卡顿）
+      e.animTime += dt;
+      if (e.animTime > 0.11) {
+        e.animTime = 0;
+        e.animFrame = (e.animFrame + 1) % 2;
+      }
       // 击退递减
       if (e.knockback.t > 0) {
         e.knockback.t -= dt;
         const kx = e.knockback.x * dt;
         const ky = e.knockback.y * dt;
-        if (isWalkable(d, e.x + kx, e.y - 2) && isWalkable(d, e.x + kx, e.y + 4)) {
-          e.x += kx;
-        }
-        if (isWalkable(d, e.x - 4, e.y + ky) && isWalkable(d, e.x + 4, e.y + ky)) {
-          e.y += ky;
-        }
+        if (!circleCollides(d, e.x + kx, e.y, 5)) e.x += kx;
+        if (!circleCollides(d, e.x, e.y + ky, 5)) e.y += ky;
         e.knockback.x *= 0.85;
         e.knockback.y *= 0.85;
         continue;
@@ -741,15 +906,14 @@ export class GameScene extends Phaser.Scene {
       const sp = e.speed * (e.ai === 'wander' ? 0.4 : 1.0);
       e.vx = mvx * sp;
       e.vy = mvy * sp;
-      // 移动 + 碰撞
+      // 圆形碰撞移动（防穿墙）
+      const ER = 5;  // 敌人碰撞半径
       const newX = e.x + e.vx * dt;
-      if (isWalkable(d, newX + (mvx > 0 ? 6 : -6), e.y - 2) &&
-          isWalkable(d, newX + (mvx > 0 ? 6 : -6), e.y + 4)) {
+      if (!circleCollides(d, newX, e.y, ER)) {
         e.x = newX;
       }
       const newY = e.y + e.vy * dt;
-      if (isWalkable(d, e.x - 4, newY + (mvy > 0 ? 6 : -6)) &&
-          isWalkable(d, e.x + 4, newY + (mvy > 0 ? 6 : -6))) {
+      if (!circleCollides(d, e.x, newY, ER)) {
         e.y = newY;
       }
     }
@@ -827,11 +991,18 @@ export class GameScene extends Phaser.Scene {
         es.hpBarBg.setVisible(false);
         continue;
       }
-      es.body.setPosition(e.x, e.y);
-      // 动画：根据 vx,vy 切换帧
+      // 90fps 平滑动画：使用 animFrame + Y 浮动 + 缩放呼吸，让 2 帧也有连续感
       const moving = Math.abs(e.vx) + Math.abs(e.vy) > 1;
-      const frame = moving ? Math.floor(Date.now() / 200) % 2 : 0;
+      const frame = moving ? e.animFrame : 0;
       es.body.setFrame(frame);
+      // Y 轴浮动（模拟步态，怪物移动时上下颠簸）
+      const bobAmount = moving ? 1.5 : 0.6;
+      const bobY = Math.sin(e.animTime * 18 + e.id) * bobAmount;
+      es.body.setPosition(e.x, e.y + bobY);
+      // 缩放呼吸（轻微脉动，让怪物有"活着"的感觉）
+      const breathe = 1 + Math.sin(e.animTime * 14 + e.id) * 0.04;
+      const baseScale = ENEMY_TYPES[e.type].isBoss ? SCALE * 2 : SCALE;
+      es.body.setScale(baseScale * breathe, baseScale / breathe);
       if (e.hurtFlash > 0) {
         es.body.setTint(0xff8080);
       } else {
@@ -901,13 +1072,18 @@ export class GameScene extends Phaser.Scene {
     const d = this.state.dungeon;
     // 把瓦片改成地板
     d.tiles[ty * MAP_W + tx] = TILE_TYPE.FLOOR;
-    // 重新渲染该瓦片
-    this.renderDungeon();
+    // 仅替换该瓦片精灵，避免全图重渲染（性能优化）
+    this.swapTileSprite(tx, ty, `tile_floor_${(tx + ty) % 4}`);
     // 保底金币（楼层越高越多）
     const baseGold = 15 + d.floor * 5 + Math.floor(Math.random() * 20);
     this.state.player.gold += baseGold;
     this.state.totalGold += baseGold;
     this.hud.showToast(`宝箱：金币 +${baseGold}`);
+    // 开宝箱金光粒子
+    const px = tx * TILE_PIX + TILE_PIX / 2;
+    const py = ty * TILE_PIX + TILE_PIX / 2;
+    this.spawnDeathBurst(px, py, 0xffd030);
+    this.flashScreen(0xffe040, 0.18, 100);
     // 30% 概率额外掉武器/装备
     const luck = Math.random();
     if (luck < 0.15) {
@@ -942,6 +1118,24 @@ export class GameScene extends Phaser.Scene {
       this.state.player.gold += bonus;
       this.state.totalGold += bonus;
       this.hud.showToast(`宝箱：金币大礼包 +${bonus}！`, 2000);
+    }
+  }
+
+  // 单瓦片精灵替换（开宝箱时局部刷新，避免整图重建）
+  private swapTileSprite(tx: number, ty: number, newTextureKey: string) {
+    const targetX = tx * TILE_PIX + TILE_PIX / 2;
+    const targetY = ty * TILE_PIX + TILE_PIX / 2;
+    if (!this.tileLayer) return;
+    // 遍历容器找对应瓦片精灵
+    const list = this.tileLayer.list as Phaser.GameObjects.Image[];
+    for (const obj of list) {
+      const img = obj as Phaser.GameObjects.Image;
+      // 跳过 graphics 对象
+      if (img.type !== 'Image') continue;
+      if (Math.abs(img.x - targetX) < 1 && Math.abs(img.y - targetY) < 1) {
+        img.setTexture(newTextureKey);
+        return;
+      }
     }
   }
 }

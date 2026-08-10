@@ -199,6 +199,8 @@ export function generateDungeon(floor: number, seed: number): DungeonState {
         knockback: { x: 0, y: 0, t: 0 },
         ai: 'idle',
         wanderUntil: 0,
+        animTime: Math.random() * 1.0,  // 随机起始相位，避免动画同步
+        animFrame: 0,
       });
       placed = true;
     }
@@ -226,6 +228,8 @@ export function generateDungeon(floor: number, seed: number): DungeonState {
       knockback: { x: 0, y: 0, t: 0 },
       ai: 'idle',
       wanderUntil: 0,
+      animTime: 0,
+      animFrame: 0,
     };
     enemies.push(bossEnemy);
   }
@@ -313,7 +317,27 @@ export function isWalkable(dungeon: DungeonState, px: number, py: number): boole
   const ty = Math.floor(py / 16);
   if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) return false;
   const t = dungeon.tiles[ty * MAP_W + tx];
+  // 宝箱和商人位置也走不过去（实体阻挡），但门/楼梯/地板可走
   return t === TILE_TYPE.FLOOR || t === TILE_TYPE.DOOR || t === TILE_TYPE.STAIRS_DOWN;
+}
+
+// 圆形碰撞检测：检查半径 r 内是否有墙（用于玩家/敌人移动，防穿墙）
+export function circleCollides(dungeon: DungeonState, cx: number, cy: number, r: number): boolean {
+  // 检查圆边界上的 8 个点 + 中心
+  const checks = [
+    [cx, cy],
+    [cx + r, cy], [cx - r, cy], [cx, cy + r], [cx, cy - r],
+    [cx + r * 0.707, cy + r * 0.707], [cx - r * 0.707, cy + r * 0.707],
+    [cx + r * 0.707, cy - r * 0.707], [cx - r * 0.707, cy - r * 0.707],
+  ];
+  for (const [px, py] of checks) {
+    const tx = Math.floor(px / 16);
+    const ty = Math.floor(py / 16);
+    if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) return true;
+    const t = dungeon.tiles[ty * MAP_W + tx];
+    if (t === TILE_TYPE.WALL) return true;
+  }
+  return false;
 }
 
 // 检查瓦片类型

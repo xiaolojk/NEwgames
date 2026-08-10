@@ -30,6 +30,8 @@ export interface EnemyState {
   ai: 'idle' | 'chase' | 'attack' | 'wander';
   wanderTarget?: Vec2;
   wanderUntil: number;
+  animTime: number;   // 动画累计时间（用于 90fps 平滑动画）
+  animFrame: number;  // 当前动画帧
 }
 
 export interface ItemDrop {

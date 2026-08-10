@@ -15,6 +15,13 @@ const config: Phaser.Types.Core.GameConfig = {
   pixelArt: true,
   roundPixels: true,
   backgroundColor: '#0a0710',
+  // 帧率目标：保证 60fps 流畅运行
+  fps: {
+    target: 60,
+    min: 30,
+    forceSetTimeOut: false,
+    smoothStep: true,
+  },
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
@@ -23,6 +30,9 @@ const config: Phaser.Types.Core.GameConfig = {
     pixelArt: true,
     antialias: false,
     roundPixels: true,
+    // 提升渲染性能
+    powerPreference: 'high-performance',
+    batchSize: 4096,
   },
   physics: {
     default: 'arcade',
