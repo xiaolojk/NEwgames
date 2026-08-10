@@ -67,6 +67,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    // 清理上一局残留的 DOM 模态框（死亡/升级/商店），避免遮挡 canvas
+    document.querySelectorAll('.modal').forEach(m => m.classList.remove('show'));
+    // 重置 hit-stop，避免上一局的 hitStopUntil 残留导致卡帧
+    this.hitStopUntil = 0;
+
     // 创建游戏状态：自动从 localStorage 加载存档（若有）
     this.state = new GameState(true);
     this.cooldownMul = 1.0;
@@ -663,7 +668,8 @@ export class GameScene extends Phaser.Scene {
       return;  // 商店打开时暂停游戏
     }
     // 命中停顿（hit-stop）：重击时短暂冻结整个世界，强化打击感
-    // 期间只更新视觉特效（伤害飘字、相机震动），冻结玩家/敌人/AI
+    // 安全上限：hitStopUntil 最多冻结 200ms，防止异常值永久卡帧
+    if (this.hitStopUntil > time + 200) this.hitStopUntil = time + 200;
     const inHitStop = time < this.hitStopUntil;
     const dt = inHitStop ? 0 : Math.min(delta / 1000, 0.05);
     if (!inHitStop) {

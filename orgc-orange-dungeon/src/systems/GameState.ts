@@ -28,6 +28,33 @@ export class GameState {
 
   constructor(loadFromSave: boolean = false) {
     const save = loadFromSave ? SaveSystem.load() : null;
+    // 存档有效性检查：HP 必须大于 0，否则视为损坏存档，删除并开新游戏
+    if (save && save.player.hp <= 0) {
+      console.warn('[Orgc] 存档 HP<=0，视为损坏，删除存档开新游戏');
+      SaveSystem.deleteSave();
+      // 走新游戏流程
+      this.dungeonSeed = Date.now() & 0xffffffff;
+      this.dungeon = generateDungeon(1, this.dungeonSeed);
+      this.player = {
+        x: 0, y: 0, vx: 0, vy: 0,
+        hp: PLAYER_BASE.maxHp, maxHp: PLAYER_BASE.maxHp,
+        sp: PLAYER_BASE.maxSp, maxSp: PLAYER_BASE.maxSp,
+        attack: PLAYER_BASE.attack, defense: PLAYER_BASE.defense,
+        speed: PLAYER_BASE.speed,
+        level: 1, xp: 0, xpNext: PLAYER_BASE.xpToLevel(1),
+        gold: 0, killCount: 0,
+        facing: 0,
+        attackCooldown: 0, dashTime: 0, dashDir: { x: 0, y: 0 },
+        hurtFlash: 0, invuln: 0,
+        walkFrame: 0, walkTime: 0,
+        attacking: false, attackTime: 0, attackAngle: 0,
+      };
+      this.player.x = this.dungeon.spawnX;
+      this.player.y = this.dungeon.spawnY;
+      this.startTime = Date.now();
+      this.addItem('potion_hp', 2);
+      return;
+    }
     if (save) {
       // 从存档恢复
       this.dungeonSeed = save.dungeonSeed;
