@@ -76,7 +76,6 @@ export class GameScene extends Phaser.Scene {
     // 设置相机
     this.cameras.main.setBackgroundColor(COLORS.uiBg);
     this.cameras.main.setRoundPixels(true);
-    this.cameras.main.startFollow(this.playerSprite || this.add.container(0, 0), true, 0.15, 0.15);
 
     // 渲染地牢
     this.renderDungeon();
@@ -85,6 +84,8 @@ export class GameScene extends Phaser.Scene {
     this.playerSprite = this.add.sprite(this.state.player.x, this.state.player.y, 'player', 0);
     this.playerSprite.setScale(SCALE);
     this.playerSprite.setOrigin(0.5, 0.6);
+    // 立即将相机定位到玩家位置，避免开局看到地图左上角(0,0)的墙体
+    this.cameras.main.centerOn(this.state.player.x, this.state.player.y);
     // 武器精灵（剑）
     this.weaponSprite = this.add.sprite(this.state.player.x, this.state.player.y, 'item_sword');
     this.weaponSprite.setScale(SCALE);
@@ -801,7 +802,7 @@ export class GameScene extends Phaser.Scene {
     p.vx = mx * speed;
     p.vy = my * speed;
     // 圆形碰撞移动（分轴检测，防穿墙）
-    const PR = 6;  // 玩家碰撞半径
+    const PR = 4;  // 玩家碰撞半径（4px：走廊宽32px，留24px通行空间，拐角不卡）
     const newX = p.x + p.vx * dt;
     if (!circleCollides(this.state.dungeon, newX, p.y, PR)) {
       p.x = newX;
@@ -844,8 +845,8 @@ export class GameScene extends Phaser.Scene {
         e.knockback.t -= dt;
         const kx = e.knockback.x * dt;
         const ky = e.knockback.y * dt;
-        if (!circleCollides(d, e.x + kx, e.y, 5)) e.x += kx;
-        if (!circleCollides(d, e.x, e.y + ky, 5)) e.y += ky;
+        if (!circleCollides(d, e.x + kx, e.y, 4)) e.x += kx;
+        if (!circleCollides(d, e.x, e.y + ky, 4)) e.y += ky;
         e.knockback.x *= 0.85;
         e.knockback.y *= 0.85;
         continue;
@@ -907,7 +908,7 @@ export class GameScene extends Phaser.Scene {
       e.vx = mvx * sp;
       e.vy = mvy * sp;
       // 圆形碰撞移动（防穿墙）
-      const ER = 5;  // 敌人碰撞半径
+      const ER = 4;  // 敌人碰撞半径（与玩家一致，拐角不卡）
       const newX = e.x + e.vx * dt;
       if (!circleCollides(d, newX, e.y, ER)) {
         e.x = newX;

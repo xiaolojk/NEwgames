@@ -322,13 +322,11 @@ export function isWalkable(dungeon: DungeonState, px: number, py: number): boole
 }
 
 // 圆形碰撞检测：检查半径 r 内是否有墙（用于玩家/敌人移动，防穿墙）
+// 仅检查中心 + 4 个正方向点，不检查对角线点，避免走廊拐角/门口误判墙角
 export function circleCollides(dungeon: DungeonState, cx: number, cy: number, r: number): boolean {
-  // 检查圆边界上的 8 个点 + 中心
   const checks = [
     [cx, cy],
     [cx + r, cy], [cx - r, cy], [cx, cy + r], [cx, cy - r],
-    [cx + r * 0.707, cy + r * 0.707], [cx - r * 0.707, cy + r * 0.707],
-    [cx + r * 0.707, cy - r * 0.707], [cx - r * 0.707, cy - r * 0.707],
   ];
   for (const [px, py] of checks) {
     const tx = Math.floor(px / 16);
