@@ -34,30 +34,30 @@ export default defineConfig({
         // 死代码注入：干扰逆向分析
         deadCodeInjection: true,
         deadCodeInjectionThreshold: 0.4,
-        // 调试保护：开发者工具打开时无限 debugger
-        debugProtection: true,
-        debugProtectionInterval: 4000,
-        // 禁用 console
-        disableConsoleOutput: true,
+        // 调试保护：开发者工具打开时无限 debugger（移动端关闭，避免误伤）
+        debugProtection: false,
+        debugProtectionInterval: 0,
+        // 禁用 console（保留 error 用于排错）
+        disableConsoleOutput: false,
         // 标识符混淆
         identifierNamesGenerator: 'hexadecimal',
         renameGlobals: false,
         // 字符串数组加密：把字符串抽到数组并加密
         stringArray: true,
         stringArrayEncoding: ['rc4'],
-        stringArrayThreshold: 1,
-        stringArrayWrappersCount: 3,
+        stringArrayThreshold: 0.8,
+        stringArrayWrappersCount: 2,
         stringArrayWrappersType: 'function',
         stringArrayWrappersChainedCalls: true,
         stringArrayRotate: true,
         stringArrayShuffle: true,
         // 拆分字符串
         splitStrings: true,
-        splitStringsChunkLength: 5,
+        splitStringsChunkLength: 8,
         // 数字常量混淆
         numbersToExpressions: true,
-        // 自我防御：防格式化
-        selfDefending: true,
+        // 自我防御：防格式化（关掉，某些浏览器会误伤）
+        selfDefending: false,
         // 变换对象键
         transformObjectKeys: true,
         // Unicode 转义序列

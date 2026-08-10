@@ -564,9 +564,9 @@ export function generateAllTextures(scene: Phaser.Scene): void {
       for (let y = 0; y < pattern.length; y++) {
         const row = pattern[y];
         for (let x = 0; x < row.length; x++) {
-          const ch = row[x];
-          if (ch === ' ' || ch === '.') continue;
-          const color = PLAYER_PAL[ch];
+          const pxChar = row[x];
+          if (pxChar === ' ' || pxChar === '.') continue;
+          const color = PLAYER_PAL[pxChar];
           if (color === undefined) continue;
           const r = (color >> 16) & 0xff;
           const gg = (color >> 8) & 0xff;
