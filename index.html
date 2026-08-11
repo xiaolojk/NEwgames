@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#5a9c3e" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="🌾 星露小镇" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="description" content="星露谷物语风格的农场模拟游戏，种田、浇水、收获！" />
+    <link rel="icon" type="image/svg+xml" href="icon.svg" />
+    <link rel="apple-touch-icon" href="icon-192.svg" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <title>🌾 星露小镇 - Stardew Mobile</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+        -webkit-user-select: none;
+        user-select: none;
+        touch-action: none;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        background: #87ceeb;
+        overflow: hidden;
+        position: fixed;
+        inset: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+          'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+      }
+      #game-container {
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+      /* 禁止橡皮筋滚动 */
+      body {
+        overscroll-behavior: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game-container"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

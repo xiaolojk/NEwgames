@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="sky2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#87CEEB"/>
+      <stop offset="100%" stop-color="#B0E0E6"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="36" fill="url(#sky2)"/>
+  <circle cx="156" cy="36" r="18" fill="#FFD700"/>
+  <rect x="20" y="110" width="152" height="60" rx="8" fill="#8B4513"/>
+  <!-- 三棵作物 -->
+  <g transform="translate(40,70) scale(0.6)">
+    <rect x="10" y="40" width="6" height="60" fill="#DAA520"/>
+    <ellipse cx="13" cy="30" rx="14" ry="22" fill="#F4D03F"/>
+  </g>
+  <g transform="translate(90,80) scale(0.5)">
+    <path d="M 0 40 Q -16 20 -8 0 L 16 0 Q 24 20 8 40 Z" fill="#E74C3C"/>
+    <path d="M -4 -6 L -10 -22 L -2 -12 Z" fill="#27AE60"/>
+    <path d="M 2 -4 L 6 -22 L 8 -10 Z" fill="#2ECC71"/>
+  </g>
+  <g transform="translate(130,60) scale(0.55)">
+    <rect x="10" y="60" width="10" height="40" fill="#8B7355"/>
+    <ellipse cx="15" cy="45" rx="16" ry="30" fill="#FFD700"/>
+  </g>
+</svg>
