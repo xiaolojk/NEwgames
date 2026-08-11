@@ -1,0 +1,19 @@
+{
+  "name": "tiny-isle",
+  "version": "1.0.0",
+  "private": true,
+  "description": "小小岛 Tiny Isle · 俯视角点击采集小游戏",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vite": "^5.4.2"
+  }
+}
