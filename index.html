@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>小小岛 · Tiny Isle</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..900&family=JetBrains+Mono:wght@400;500&family=ZCOOL+KuaiLe&display=swap"
+    rel="stylesheet"
+  />
+  <style>
+    :root {
+      --ocean-0: #87cde8;
+      --ocean-1: #a8dcee;
+      --sand: #f2dcb0;
+      --sand-edge: #e8c990;
+      --grass-0: #bfe3a6;
+      --grass-1: #9ad088;
+      --wood-brown: #7b4a2a;
+      --stone-gray: #8a8f99;
+      --paper: #fbf5e7;
+      --ink: #2b2733;
+      --accent: #e67a5a;
+      --shadow: 0 6px 0 rgba(43, 39, 51, 0.1), 0 18px 40px rgba(43, 39, 51, 0.18);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background:
+        radial-gradient(ellipse at 20% 10%, #b7e1f0 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 90%, #cfe7ef 0%, transparent 60%),
+        linear-gradient(180deg, #a6d8e6 0%, #6cbfdc 100%);
+      color: var(--ink);
+      font-family: "Fraunces", "ZCOOL KuaiLe", serif;
+      overflow: hidden;
+    }
+    #game-root {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    canvas {
+      display: block;
+      border-radius: 28px;
+      box-shadow: var(--shadow);
+      image-rendering: crisp-edges;
+    }
+    /* ============ HUD ============ */
+    .hud {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      font-family: "Fraunces", "ZCOOL KuaiLe", serif;
+    }
+    .inventory {
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      display: flex;
+      gap: 14px;
+      pointer-events: auto;
+    }
+    .inv-card {
+      background: var(--paper);
+      border: 3px solid var(--ink);
+      border-radius: 18px;
+      padding: 10px 16px;
+      min-width: 128px;
+      box-shadow: var(--shadow);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transform: translateY(0);
+      transition: transform 180ms cubic-bezier(.2,.9,.25,1.1);
+    }
+    .inv-card.bump { transform: translateY(-6px) rotate(-1.5deg); }
+    .inv-card .icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      font-size: 20px;
+      background: #fff4dc;
+      border: 2px dashed rgba(43, 39, 51, .25);
+    }
+    .inv-card .label {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: #7a6f60;
+      line-height: 1;
+    }
+    .inv-card .count {
+      font-weight: 700;
+      font-size: 24px;
+      letter-spacing: .02em;
+      line-height: 1;
+      margin-top: 2px;
+      color: var(--ink);
+    }
+    .title-card {
+      position: absolute;
+      top: 24px;
+      right: 24px;
+      background: var(--paper);
+      border: 3px solid var(--ink);
+      border-radius: 18px;
+      padding: 10px 18px;
+      box-shadow: var(--shadow);
+      pointer-events: auto;
+    }
+    .title-card .zh {
+      font-family: "ZCOOL KuaiLe", serif;
+      font-size: 22px;
+      line-height: 1;
+      color: var(--ink);
+    }
+    .title-card .sub {
+      font-family: "Fraunces", serif;
+      font-size: 12px;
+      font-style: italic;
+      color: #7a6f60;
+      margin-top: 4px;
+      letter-spacing: .05em;
+    }
+    .tips {
+      position: absolute;
+      bottom: 22px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--paper);
+      border: 3px solid var(--ink);
+      border-radius: 999px;
+      padding: 10px 22px;
+      box-shadow: var(--shadow);
+      font-size: 14px;
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      pointer-events: auto;
+    }
+    .tips b {
+      font-family: "JetBrains Mono", monospace;
+      background: #fff4dc;
+      border: 2px dashed rgba(43, 39, 51, .25);
+      padding: 2px 8px;
+      border-radius: 8px;
+      font-size: 12px;
+    }
+    .progress-wrap {
+      position: absolute;
+      left: 50%;
+      bottom: 84px;
+      transform: translateX(-50%);
+      width: min(360px, 56vw);
+      height: 22px;
+      background: var(--paper);
+      border: 3px solid var(--ink);
+      border-radius: 999px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      opacity: 0;
+      transition: opacity 180ms ease;
+    }
+    .progress-wrap.show { opacity: 1; }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: repeating-linear-gradient(
+        45deg,
+        var(--accent) 0 10px,
+        #ff946e 10px 20px
+      );
+      transition: width 80ms linear;
+    }
+    .progress-label {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 12px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--ink);
+      mix-blend-mode: multiply;
+    }
+    .toast-layer {
+      position: absolute;
+      bottom: 130px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    .toast {
+      background: var(--ink);
+      color: var(--paper);
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 12px;
+      letter-spacing: .08em;
+      box-shadow: var(--shadow);
+      animation: toast-in 180ms cubic-bezier(.2,.9,.25,1.1), toast-out 280ms ease 1.3s forwards;
+    }
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(12px) scale(.96); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes toast-out {
+      to { opacity: 0; transform: translateY(-12px); }
+    }
+  </style>
+  <script type="module" crossorigin src="./assets/index--7-URCiC.js"></script>
+</head>
+<body>
+  <div id="game-root"></div>
+
+  <div class="hud" id="hud">
+    <div class="inventory" id="inventory">
+      <div class="inv-card" id="inv-wood">
+        <div class="icon" style="background:#efe3cf;">🪵</div>
+        <div>
+          <div class="label">WOOD</div>
+          <div class="count" id="count-wood">0</div>
+        </div>
+      </div>
+      <div class="inv-card" id="inv-stone">
+        <div class="icon" style="background:#e7eaee;">🪨</div>
+        <div>
+          <div class="label">STONE</div>
+          <div class="count" id="count-stone">0</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="title-card">
+      <div class="zh">小小岛</div>
+      <div class="sub">Tiny Isle · click to gather</div>
+    </div>
+
+    <div class="progress-wrap" id="progress-wrap">
+      <div class="progress-bar" id="progress-bar"></div>
+      <div class="progress-label" id="progress-label">CHOPPING…</div>
+    </div>
+
+    <div class="toast-layer" id="toast-layer"></div>
+
+    <div class="tips">
+      <span>点击地面 <b>走路</b></span>
+      <span>点击 <b>🌳</b> <b>砍树</b></span>
+      <span>点击 <b>🪨</b> <b>挖石</b></span>
+    </div>
+  </div>
+
+</body>
+</html>
